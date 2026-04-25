@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <title>ASL Phone Hand Detection</title>
   <style>
@@ -10,7 +11,8 @@
       font-family: Arial, sans-serif;
     }
 
-    video, canvas {
+    video,
+    canvas {
       position: absolute;
       width: 100vw;
       height: 100vh;
@@ -22,7 +24,7 @@
       top: 10px;
       left: 10px;
       color: lime;
-      background: rgba(0,0,0,0.6);
+      background: rgba(0, 0, 0, 0.6);
       padding: 8px 12px;
       font-size: 18px;
       z-index: 10;
@@ -50,85 +52,93 @@
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
     }
-
     window.addEventListener("resize", resizeCanvas);
     resizeCanvas();
-
     const hands = new Hands({
       locateFile: (file) => {
         return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
       }
     });
-
     hands.setOptions({
       maxNumHands: 4,
       modelComplexity: 1,
       minDetectionConfidence: 0.6,
       minTrackingConfidence: 0.6
     });
-
     hands.onResults((results) => {
+      ctx.strokeStyle = "white";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, canvas.height * 0.6);
+      ctx.lineTo(canvas.width, canvas.height * 0.6);
+      ctx.stroke();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
       ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
-
-      let handCount = 0;
-
+      let selfHands = 0;
+      let otherHands = 0;
       if (results.multiHandLandmarks) {
-        handCount = results.multiHandLandmarks.length;
-
         for (const landmarks of results.multiHandLandmarks) {
+          // Get average Y position of hand
+          let avgY = 0;
+          for (const point of landmarks) {
+            avgY += point.y;
+          }
+          avgY /= landmarks.length;
+          // Classify based on vertical position
+          if (avgY > 0.6) {
+            selfHands++;
+          } else {
+            otherHands++;
+          }
           drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {
-            color: "#00FF00",
+            color: avgY > 0.6 ? "#00FF00" : "#00AAFF",
             lineWidth: 3
           });
-
           drawLandmarks(ctx, landmarks, {
-            color: "#FF0000",
-            lineWidth: 2,
+            color: avgY > 0.6 ? "#FF0000" : "#FFFF00",
             radius: 3
           });
         }
       }
-
-      label.innerText = `Hands detected: ${handCount}`;
+      label.innerText = `You: ${selfHands} | Other: ${otherHands}`;
     });
-
-async function startBackCamera() {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  const videoDevices = devices.filter(device => device.kind === "videoinput");
-
-  let backCamera = videoDevices.find(device =>
-    device.label.toLowerCase().includes("back") ||
-    device.label.toLowerCase().includes("rear") ||
-    device.label.toLowerCase().includes("environment")
-  );
-
-  const constraints = {
-    video: backCamera
-      ? { deviceId: { exact: backCamera.deviceId } }
-      : { facingMode: { ideal: "environment" } },
-    audio: false
-  };
-
-  const stream = await navigator.mediaDevices.getUserMedia(constraints);
-  video.srcObject = stream;
-
-  video.onloadedmetadata = () => {
-    video.play();
-
-    async function processFrame() {
-      await hands.send({ image: video });
-      requestAnimationFrame(processFrame);
+    async function startBackCamera() {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(device => device.kind === "videoinput");
+      let backCamera = videoDevices.find(device =>
+        device.label.toLowerCase().includes("back") ||
+        device.label.toLowerCase().includes("rear") ||
+        device.label.toLowerCase().includes("environment")
+      );
+      const constraints = {
+        video: backCamera ? {
+          deviceId: {
+            exact: backCamera.deviceId
+          }
+        } : {
+          facingMode: {
+            ideal: "environment"
+          }
+        },
+        audio: false
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = stream;
+      video.onloadedmetadata = () => {
+        video.play();
+        async function processFrame() {
+          await hands.send({
+            image: video
+          });
+          requestAnimationFrame(processFrame);
+        }
+        processFrame();
+      };
     }
-
-    processFrame();
-  };
-}
-
-startBackCamera().catch(err => {
-  label.innerText = "Camera error: " + err.name + " - " + err.message;
-});
+    startBackCamera().catch(err => {
+      label.innerText = "Camera error: " + err.name + " - " + err.message;
+    });
   </script>
 </body>
+
 </html>
