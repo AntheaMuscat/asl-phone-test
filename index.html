@@ -79,23 +79,24 @@
       if (results.multiHandLandmarks) {
         for (const landmarks of results.multiHandLandmarks) {
           // Get average Y position of hand
-          let avgY = 0;
+          let avgX = 0;
           for (const point of landmarks) {
-            avgY += point.y;
+            avgX += point.x;
           }
-          avgY /= landmarks.length;
-          // Classify based on vertical position
-          if (avgY > 0.6) {
+          avgX /= landmarks.length;
+          // LEFT side = you
+          // RIGHT side = other person
+          if (avgX < 0.5) {
             selfHands++;
           } else {
             otherHands++;
           }
           drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {
-            color: avgY > 0.6 ? "#00FF00" : "#00AAFF",
+            color: avgX < 0.5 ? "#00FF00" : "#00AAFF",
             lineWidth: 3
           });
           drawLandmarks(ctx, landmarks, {
-            color: avgY > 0.6 ? "#FF0000" : "#FFFF00",
+            color: avgX < 0.5 ? "#FF0000" : "#FFFF00",
             radius: 3
           });
         }
