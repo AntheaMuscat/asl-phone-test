@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html>
-
 <head>
   <title>ASL Phone Hand Detection</title>
   <style>
@@ -11,8 +10,7 @@
       font-family: Arial, sans-serif;
     }
 
-    video,
-    canvas {
+    video, canvas {
       position: absolute;
       width: 100vw;
       height: 100vh;
@@ -46,135 +44,159 @@
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
     const label = document.getElementById("label");
-    const SELF_THRESHOLD = 0.035; // increase/decrease after testing
+
+    const SELF_RATIO = 0.65;
+    const SEQ_LENGTH = 30;
+
+    let selfSequence = [];
+    let otherSequence = [];
+
     function resizeCanvas() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
     }
+
     window.addEventListener("resize", resizeCanvas);
     resizeCanvas();
 
     function getHandBoxSize(landmarks) {
-      let minX = 1,
-        maxX = 0;
-      let minY = 1,
-        maxY = 0;
+      let minX = 1, maxX = 0;
+      let minY = 1, maxY = 0;
+
       for (const p of landmarks) {
         minX = Math.min(minX, p.x);
         maxX = Math.max(maxX, p.x);
         minY = Math.min(minY, p.y);
         maxY = Math.max(maxY, p.y);
       }
-      const width = maxX - minX;
-      const height = maxY - minY;
-      return width * height;
+
+      return (maxX - minX) * (maxY - minY);
     }
+
+    function flattenLandmarks(landmarks) {
+      const arr = [];
+
+      for (const p of landmarks) {
+        arr.push(p.x, p.y, p.z);
+      }
+
+      return arr;
+    }
+
+    function addToSequence(sequence, flatLandmarks) {
+      sequence.push(flatLandmarks);
+
+      if (sequence.length > SEQ_LENGTH) {
+        sequence.shift();
+      }
+    }
+
     const hands = new Hands({
       locateFile: (file) => {
         return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
       }
     });
+
     hands.setOptions({
       maxNumHands: 6,
       modelComplexity: 1,
       minDetectionConfidence: 0.4,
       minTrackingConfidence: 0.4
     });
+
     hands.onResults((results) => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
       let selfHands = 0;
       let otherHands = 0;
       let sizes = [];
-      if (results.multiHandLandmarks) {
-        for (const landmarks of results.multiHandLandmarks) {
-          const boxSize = getHandBoxSize(landmarks);
-          sizes.push(boxSize.toFixed(3));
-          const handData = results.multiHandLandmarks.map(landmarks => {
-            return {
-              landmarks: landmarks,
-              size: getHandBoxSize(landmarks)
-            };
-          });
-          const maxSize = Math.max(...handData.map(h => h.size));
-          for (const hand of handData) {
-            const isSelf = hand.size >= maxSize * 0.65;
-            if (isSelf) {
-              selfHands++;
-            } else {
-              otherHands++;
-            }
-            drawConnectors(ctx, hand.landmarks, HAND_CONNECTIONS, {
-              color: isSelf ? "#00FF00" : "#00AAFF",
-              lineWidth: 3
-            });
-            drawLandmarks(ctx, hand.landmarks, {
-              color: isSelf ? "#FF0000" : "#FFFF00",
-              radius: 3
-            });
-          }
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const handData = results.multiHandLandmarks.map((landmarks) => {
+          return {
+            landmarks: landmarks,
+            size: getHandBoxSize(landmarks)
+          };
+        });
+
+        const maxSize = Math.max(...handData.map(h => h.size));
+
+        for (const hand of handData) {
+          const isSelf = hand.size >= maxSize * SELF_RATIO;
+          const flat = flattenLandmarks(hand.landmarks);
+
+          sizes.push(hand.size.toFixed(3));
+
           if (isSelf) {
             selfHands++;
+            addToSequence(selfSequence, flat);
           } else {
             otherHands++;
+            addToSequence(otherSequence, flat);
           }
-          drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {
+
+          drawConnectors(ctx, hand.landmarks, HAND_CONNECTIONS, {
             color: isSelf ? "#00FF00" : "#00AAFF",
             lineWidth: 3
           });
-          drawLandmarks(ctx, landmarks, {
+
+          drawLandmarks(ctx, hand.landmarks, {
             color: isSelf ? "#FF0000" : "#FFFF00",
             radius: 3
           });
         }
       }
+
       label.innerText =
-        `You: ${selfHands} | Other: ${otherHands} | Sizes: ${sizes.join(", ")}`;
+        `You: ${selfHands} | Other: ${otherHands} | ` +
+        `Self Seq: ${selfSequence.length}/${SEQ_LENGTH} | ` +
+        `Other Seq: ${otherSequence.length}/${SEQ_LENGTH} | ` +
+        `Sizes: ${sizes.join(", ")}`;
     });
+
     async function startBackCamera() {
       const firstStream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: false
       });
+
       firstStream.getTracks().forEach(track => track.stop());
+
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter(device => device.kind === "videoinput");
+
       let backCamera = videoDevices.find(device =>
         device.label.toLowerCase().includes("back") ||
         device.label.toLowerCase().includes("rear") ||
         device.label.toLowerCase().includes("environment")
       );
+
       const constraints = {
-        video: backCamera ?
-          {
-            deviceId: {
-              exact: backCamera.deviceId
-            }
-          } :
-          {
-            facingMode: {
-              ideal: "environment"
-            }
-          },
+        video: backCamera
+          ? { deviceId: { exact: backCamera.deviceId } }
+          : { facingMode: { ideal: "environment" } },
         audio: false
       };
+
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       video.srcObject = stream;
+
       video.onloadedmetadata = () => {
         video.play();
+
         async function processFrame() {
-          await hands.send({
-            image: video
-          });
+          await hands.send({ image: video });
           requestAnimationFrame(processFrame);
         }
+
         processFrame();
       };
     }
+
     startBackCamera().catch(err => {
       label.innerText = "Camera error: " + err.name + " - " + err.message;
     });
   </script>
 </body>
-
 </html>
