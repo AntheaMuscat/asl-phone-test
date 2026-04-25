@@ -94,16 +94,24 @@
       label.innerText = `Hands detected: ${handCount}`;
     });
 
-    async function startBackCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: {
-      facingMode: { exact: "environment" },
-      width: { ideal: 1280 },
-      height: { ideal: 720 }
-    },
-    audio: false
-  });
+async function startBackCamera() {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const videoDevices = devices.filter(device => device.kind === "videoinput");
 
+  let backCamera = videoDevices.find(device =>
+    device.label.toLowerCase().includes("back") ||
+    device.label.toLowerCase().includes("rear") ||
+    device.label.toLowerCase().includes("environment")
+  );
+
+  const constraints = {
+    video: backCamera
+      ? { deviceId: { exact: backCamera.deviceId } }
+      : { facingMode: { ideal: "environment" } },
+    audio: false
+  };
+
+  const stream = await navigator.mediaDevices.getUserMedia(constraints);
   video.srcObject = stream;
 
   video.onloadedmetadata = () => {
@@ -119,7 +127,7 @@
 }
 
 startBackCamera().catch(err => {
-  label.innerText = "Back camera error: " + err.message;
+  label.innerText = "Camera error: " + err.name + " - " + err.message;
 });
   </script>
 </body>
