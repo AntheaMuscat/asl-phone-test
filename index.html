@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ASL Phone Camera Test</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: black; color: white; font-family: Arial; }
+    video {
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+    }
+    #label {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: lime;
+      font-size: 22px;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <div id="label">Starting camera...</div>
+  <video id="video" autoplay playsinline muted></video>
+
+  <script>
+    const video = document.getElementById("video");
+    const label = document.getElementById("label");
+
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" }
+          },
+          audio: false
+        });
+
+        video.srcObject = stream;
+        label.innerText = "Camera running";
+      } catch (err) {
+        label.innerText = "Camera error: " + err.name + " - " + err.message;
+      }
+    }
+
+    startCamera();
+  </script>
+</body>
+</html>
