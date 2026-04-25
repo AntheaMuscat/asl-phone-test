@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html>
-
 <head>
   <title>ASL Recognition</title>
   <style>
@@ -11,8 +10,7 @@
       font-family: Arial, sans-serif;
     }
 
-    video,
-    canvas {
+    video, canvas {
       position: absolute;
       width: 100vw;
       height: 100vh;
@@ -24,7 +22,7 @@
       top: 20px;
       left: 20px;
       color: lime;
-      background: rgba(0, 0, 0, 0.75);
+      background: rgba(0,0,0,0.75);
       padding: 18px 24px;
       font-size: 36px;
       font-weight: bold;
@@ -49,163 +47,186 @@
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
     const label = document.getElementById("label");
+
     const API_URL = "http://192.168.0.78:5000/predict"; // change if laptop IP changes
     const SEQ_LENGTH = 30;
     const SELF_RATIO = 0.65;
     const RESET_THRESHOLD = 90;
+
     let selfSequence = [];
     let lastPrediction = "Waiting...";
     let predicting = false;
-    let lastFrame = null;
     let noHandFrames = 0;
 
     function resizeCanvas() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
     }
+
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
 
     function getHandSize(landmarks) {
-      let minX = 1,
-        maxX = 0,
-        minY = 1,
-        maxY = 0;
+      let minX = 1, maxX = 0, minY = 1, maxY = 0;
+
       for (const p of landmarks) {
         minX = Math.min(minX, p.x);
         maxX = Math.max(maxX, p.x);
         minY = Math.min(minY, p.y);
         maxY = Math.max(maxY, p.y);
       }
+
       return (maxX - minX) * (maxY - minY);
     }
 
     function flatten(landmarks) {
       const arr = [];
+
       for (const p of landmarks) {
         arr.push(p.x, p.y, p.z);
       }
+
       return arr;
     }
 
-    function isSameHand(prev, current) {
-      if (!prev) return true;
-      let diff = 0;
-      for (let i = 0; i < prev.length; i++) {
-        diff += Math.abs(prev[i] - current[i]);
+    function makeTwoHandFrame(selfHandsLandmarks) {
+      let frame = [];
+
+      for (let i = 0; i < 2; i++) {
+        if (selfHandsLandmarks[i]) {
+          frame = frame.concat(flatten(selfHandsLandmarks[i]));
+        } else {
+          frame = frame.concat(new Array(63).fill(0));
+        }
       }
-      diff /= prev.length;
-      return diff < 0.02;
+
+      return frame; // 126 values
     }
+
     async function sendPrediction(sequence) {
       try {
         const res = await fetch(API_URL, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            sequence
-          })
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sequence })
         });
+
         const data = await res.json();
         lastPrediction = `${data.label} (${(data.confidence * 100).toFixed(1)}%)`;
       } catch (e) {
         lastPrediction = "Server error";
       }
     }
+
     const hands = new Hands({
       locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
     });
+
     hands.setOptions({
       maxNumHands: 6,
       modelComplexity: 1,
       minDetectionConfidence: 0.3,
       minTrackingConfidence: 0.3
     });
+
     hands.onResults(results => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
       let selfHands = 0;
       let otherHands = 0;
+      let selfLandmarksList = [];
+
       if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
         noHandFrames = 0;
+
         const handsData = results.multiHandLandmarks.map(l => ({
           landmarks: l,
           size: getHandSize(l)
         }));
+
         const maxSize = Math.max(...handsData.map(h => h.size));
+
         for (const hand of handsData) {
           const isSelf = hand.size >= maxSize * SELF_RATIO;
-          const flat = flatten(hand.landmarks);
+
           if (isSelf) {
             selfHands++;
-            lastFrame = flat;
-            selfSequence.push(flat);
-            if (selfSequence.length > SEQ_LENGTH) {
-              selfSequence.shift();
-            }
-            if (selfSequence.length === SEQ_LENGTH && !predicting) {
-              predicting = true;
-              sendPrediction([...selfSequence]).finally(() => {
-                predicting = false;
-              });
-            }
+            selfLandmarksList.push(hand.landmarks);
           } else {
             otherHands++;
           }
+
           drawConnectors(ctx, hand.landmarks, HAND_CONNECTIONS, {
             color: isSelf ? "#00FF00" : "#00AAFF",
             lineWidth: 3
           });
+
           drawLandmarks(ctx, hand.landmarks, {
             color: isSelf ? "#FF0000" : "#FFFF00",
             radius: 3
           });
         }
+
+        if (selfLandmarksList.length > 0) {
+          const twoHandFrame = makeTwoHandFrame(selfLandmarksList);
+
+          selfSequence.push(twoHandFrame);
+
+          if (selfSequence.length > SEQ_LENGTH) {
+            selfSequence.shift();
+          }
+
+          if (selfSequence.length === SEQ_LENGTH && !predicting) {
+            predicting = true;
+
+            sendPrediction([...selfSequence]).finally(() => {
+              predicting = false;
+            });
+          }
+        }
+
       } else {
         noHandFrames++;
+
         if (noHandFrames > RESET_THRESHOLD) {
           selfSequence = [];
-          lastFrame = null;
         }
       }
+
       label.innerText =
         `You: ${selfHands} | Other: ${otherHands}\n` +
         `Seq: ${selfSequence.length}/${SEQ_LENGTH}\n` +
         `Prediction: ${lastPrediction}`;
     });
+
     async function startCamera() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: {
-            ideal: "environment"
-          },
-          width: {
-            ideal: 1280
-          },
-          height: {
-            ideal: 720
-          }
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
         },
         audio: false
       });
+
       video.srcObject = stream;
+
       video.onloadedmetadata = () => {
         video.play();
+
         async function loop() {
-          await hands.send({
-            image: video
-          });
+          await hands.send({ image: video });
           requestAnimationFrame(loop);
         }
+
         loop();
       };
     }
+
     startCamera().catch(err => {
       label.innerText = "Camera error: " + err.name + " - " + err.message;
     });
   </script>
 </body>
-
 </html>
