@@ -51,7 +51,7 @@
     const API_URL = "http://192.168.0.78:5000/predict"; // change if laptop IP changes
     const SEQ_LENGTH = 30;
     const SELF_RATIO = 0.65;
-    const RESET_THRESHOLD = 10;
+    const RESET_THRESHOLD = 30;
 
     let selfSequence = [];
     let lastPrediction = "Waiting...";
@@ -154,10 +154,6 @@
           if (isSelf) {
             selfHands++;
 
-            if (!isSameHand(lastFrame, flat)) {
-              selfSequence = [];
-              lastPrediction = "Waiting...";
-            }
 
             lastFrame = flat;
 
