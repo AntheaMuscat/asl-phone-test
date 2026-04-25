@@ -94,15 +94,33 @@
       label.innerText = `Hands detected: ${handCount}`;
     });
 
-    const camera = new Camera(video, {
-      onFrame: async () => {
-        await hands.send({ image: video });
-      },
-      width: 1280,
-      height: 720
-    });
+    async function startBackCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode: { exact: "environment" },
+      width: { ideal: 1280 },
+      height: { ideal: 720 }
+    },
+    audio: false
+  });
 
-    camera.start();
+  video.srcObject = stream;
+
+  video.onloadedmetadata = () => {
+    video.play();
+
+    async function processFrame() {
+      await hands.send({ image: video });
+      requestAnimationFrame(processFrame);
+    }
+
+    processFrame();
+  };
+}
+
+startBackCamera().catch(err => {
+  label.innerText = "Back camera error: " + err.message;
+});
   </script>
 </body>
 </html>
