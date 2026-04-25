@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>ASL Phone Hand Detection</title>
+  <title>ASL Recognition</title>
   <style>
     body {
       margin: 0;
       overflow: hidden;
       background: black;
-      font-family: Arial, sans-serif;
+      font-family: Arial;
     }
 
     video, canvas {
@@ -22,181 +22,165 @@
       top: 10px;
       left: 10px;
       color: lime;
-      background: rgba(0, 0, 0, 0.6);
-      padding: 8px 12px;
+      background: rgba(0,0,0,0.6);
+      padding: 10px;
       font-size: 18px;
-      z-index: 10;
       border-radius: 8px;
     }
   </style>
 </head>
 
 <body>
-  <video id="video" autoplay playsinline muted></video>
-  <canvas id="canvas"></canvas>
-  <div id="label">Starting camera...</div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<video id="video" autoplay playsinline muted></video>
+<canvas id="canvas"></canvas>
+<div id="label">Starting...</div>
 
-  <script>
-    const video = document.getElementById("video");
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
-    const label = document.getElementById("label");
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
-    const SELF_RATIO = 0.65;
-    const SEQ_LENGTH = 30;
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const label = document.getElementById("label");
 
-    let selfSequence = [];
-    let otherSequence = [];
+const API_URL = "http://192.168.0.78:5000/predict";
 
-    function resizeCanvas() {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    }
+const SEQ_LENGTH = 30;
+const SELF_RATIO = 0.65;
 
-    window.addEventListener("resize", resizeCanvas);
-    resizeCanvas();
+let selfSequence = [];
+let lastPrediction = "Waiting...";
 
-    function getHandBoxSize(landmarks) {
-      let minX = 1, maxX = 0;
-      let minY = 1, maxY = 0;
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resizeCanvas();
+window.addEventListener("resize", resizeCanvas);
 
-      for (const p of landmarks) {
-        minX = Math.min(minX, p.x);
-        maxX = Math.max(maxX, p.x);
-        minY = Math.min(minY, p.y);
-        maxY = Math.max(maxY, p.y);
-      }
+function getHandSize(landmarks) {
+  let minX = 1, maxX = 0, minY = 1, maxY = 0;
 
-      return (maxX - minX) * (maxY - minY);
-    }
+  for (const p of landmarks) {
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y);
+    maxY = Math.max(maxY, p.y);
+  }
 
-    function flattenLandmarks(landmarks) {
-      const arr = [];
+  return (maxX - minX) * (maxY - minY);
+}
 
-      for (const p of landmarks) {
-        arr.push(p.x, p.y, p.z);
-      }
+function flatten(landmarks) {
+  let arr = [];
+  for (const p of landmarks) {
+    arr.push(p.x, p.y, p.z);
+  }
+  return arr;
+}
 
-      return arr;
-    }
-
-    function addToSequence(sequence, flatLandmarks) {
-      sequence.push(flatLandmarks);
-
-      if (sequence.length > SEQ_LENGTH) {
-        sequence.shift();
-      }
-    }
-
-    const hands = new Hands({
-      locateFile: (file) => {
-        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-      }
+async function sendPrediction(sequence) {
+  try {
+    const res = await fetch(API_URL, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ sequence })
     });
 
-    hands.setOptions({
-      maxNumHands: 6,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.4,
-      minTrackingConfidence: 0.4
-    });
+    const data = await res.json();
+    lastPrediction = `${data.label} (${(data.confidence*100).toFixed(1)}%)`;
+  } catch (e) {
+    lastPrediction = "Server error";
+  }
+}
 
-    hands.onResults((results) => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+const hands = new Hands({
+  locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
 
-      let selfHands = 0;
-      let otherHands = 0;
-      let sizes = [];
+hands.setOptions({
+  maxNumHands: 6,
+  minDetectionConfidence: 0.4,
+  minTrackingConfidence: 0.4
+});
 
-      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        const handData = results.multiHandLandmarks.map((landmarks) => {
-          return {
-            landmarks: landmarks,
-            size: getHandBoxSize(landmarks)
-          };
-        });
+hands.onResults(results => {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(results.image,0,0,canvas.width,canvas.height);
 
-        const maxSize = Math.max(...handData.map(h => h.size));
+  let selfHands = 0;
+  let otherHands = 0;
 
-        for (const hand of handData) {
-          const isSelf = hand.size >= maxSize * SELF_RATIO;
-          const flat = flattenLandmarks(hand.landmarks);
+  if (results.multiHandLandmarks) {
 
-          sizes.push(hand.size.toFixed(3));
+    const handsData = results.multiHandLandmarks.map(l => ({
+      landmarks: l,
+      size: getHandSize(l)
+    }));
 
-          if (isSelf) {
-            selfHands++;
-            addToSequence(selfSequence, flat);
-          } else {
-            otherHands++;
-            addToSequence(otherSequence, flat);
-          }
+    const maxSize = Math.max(...handsData.map(h => h.size));
 
-          drawConnectors(ctx, hand.landmarks, HAND_CONNECTIONS, {
-            color: isSelf ? "#00FF00" : "#00AAFF",
-            lineWidth: 3
-          });
+    for (const hand of handsData) {
 
-          drawLandmarks(ctx, hand.landmarks, {
-            color: isSelf ? "#FF0000" : "#FFFF00",
-            radius: 3
-          });
+      const isSelf = hand.size >= maxSize * SELF_RATIO;
+      const flat = flatten(hand.landmarks);
+
+      if (isSelf) {
+        selfHands++;
+
+        selfSequence.push(flat);
+        if (selfSequence.length > SEQ_LENGTH) selfSequence.shift();
+
+        if (selfSequence.length === SEQ_LENGTH) {
+          sendPrediction(selfSequence);
         }
+
+      } else {
+        otherHands++;
       }
 
-      label.innerText =
-        `You: ${selfHands} | Other: ${otherHands} | ` +
-        `Self Seq: ${selfSequence.length}/${SEQ_LENGTH} | ` +
-        `Other Seq: ${otherSequence.length}/${SEQ_LENGTH} | ` +
-        `Sizes: ${sizes.join(", ")}`;
-    });
-
-    async function startBackCamera() {
-      const firstStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false
+      drawConnectors(ctx, hand.landmarks, HAND_CONNECTIONS, {
+        color: isSelf ? "#00FF00" : "#00AAFF",
+        lineWidth: 3
       });
 
-      firstStream.getTracks().forEach(track => track.stop());
+      drawLandmarks(ctx, hand.landmarks, {
+        color: isSelf ? "#FF0000" : "#FFFF00",
+        radius: 3
+      });
+    }
+  }
 
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter(device => device.kind === "videoinput");
+  label.innerText =
+    `You: ${selfHands} | Other: ${otherHands}\n` +
+    `Seq: ${selfSequence.length}/${SEQ_LENGTH}\n` +
+    `Prediction: ${lastPrediction}`;
+});
 
-      let backCamera = videoDevices.find(device =>
-        device.label.toLowerCase().includes("back") ||
-        device.label.toLowerCase().includes("rear") ||
-        device.label.toLowerCase().includes("environment")
-      );
+async function startCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: "environment" } },
+    audio: false
+  });
 
-      const constraints = {
-        video: backCamera
-          ? { deviceId: { exact: backCamera.deviceId } }
-          : { facingMode: { ideal: "environment" } },
-        audio: false
-      };
+  video.srcObject = stream;
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      video.srcObject = stream;
+  video.onloadedmetadata = () => {
+    video.play();
 
-      video.onloadedmetadata = () => {
-        video.play();
-
-        async function processFrame() {
-          await hands.send({ image: video });
-          requestAnimationFrame(processFrame);
-        }
-
-        processFrame();
-      };
+    async function loop() {
+      await hands.send({ image: video });
+      requestAnimationFrame(loop);
     }
 
-    startBackCamera().catch(err => {
-      label.innerText = "Camera error: " + err.name + " - " + err.message;
-    });
-  </script>
+    loop();
+  };
+}
+
+startCamera();
+</script>
+
 </body>
 </html>
