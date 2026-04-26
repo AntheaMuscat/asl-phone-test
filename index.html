@@ -532,37 +532,52 @@
     hands.onResults(onResults);
 
     async function startCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
-          },
-          audio: false
-        });
+  try {
+    let stream;
 
-        video.srcObject = stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      });
+    } catch (firstError) {
+      console.warn("Back camera failed, trying default camera", firstError);
 
-        video.onloadedmetadata = () => {
-          video.play();
-
-          const camera = new Camera(video, {
-            onFrame: async () => {
-              await hands.send({ image: video });
-            },
-            width: 1280,
-            height: 720
-          });
-
-          camera.start();
-        };
-
-      } catch (error) {
-        label.innerText = "Camera permission error";
-        console.error(error);
-      }
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false
+      });
     }
+
+    video.srcObject = stream;
+
+    video.onloadedmetadata = () => {
+      video.play();
+
+      const camera = new Camera(video, {
+        onFrame: async () => {
+          await hands.send({ image: video });
+        },
+        width: 1280,
+        height: 720
+      });
+
+      camera.start();
+    };
+
+  } catch (error) {
+    label.innerText =
+      "Camera error:\n" +
+      error.name + "\n" +
+      error.message;
+
+    console.error(error);
+  }
+}
 
     startCamera();
   </script>
