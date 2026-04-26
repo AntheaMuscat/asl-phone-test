@@ -1,285 +1,375 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>ASL Dual-User Phone Recognition</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>ASL Dual User Recognition</title>
+
   <style>
-    body { margin: 0; overflow: hidden; background: #000; font-family: Arial, sans-serif; }
-    video, canvas { position: absolute; width: 100vw; height: 100vh; object-fit: cover; }
-    #hud {
-      position: absolute; top: 14px; left: 14px; z-index: 10;
-      color: #fff; background: rgba(0,0,0,.72); padding: 14px 18px;
-      border-radius: 14px; font-weight: bold; line-height: 1.35; white-space: pre-line;
-      font-size: clamp(16px, 3.2vw, 30px); max-width: 86vw;
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: black;
+      font-family: Arial, sans-serif;
     }
-    #guide {
-      position: absolute; inset: 0; z-index: 5; pointer-events: none;
+
+    video, canvas {
+      position: absolute;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
     }
-    .zoneLabel {
-      position: absolute; left: 50%; transform: translateX(-50%); color: white;
-      background: rgba(0,0,0,.45); padding: 6px 12px; border-radius: 999px;
-      font-weight: bold; letter-spacing: .5px; font-size: clamp(12px, 2.2vw, 20px);
+
+    #label {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      color: lime;
+      background: rgba(0, 0, 0, 0.75);
+      padding: 18px;
+      font-size: 28px;
+      font-weight: bold;
+      border-radius: 12px;
+      z-index: 10;
+      white-space: pre-line;
+      line-height: 1.4;
     }
-    #otherZone { top: 42%; }
-    #selfZone { bottom: 3%; }
-    #splitLine {
-      position: absolute; left: 0; right: 0; top: 55%; border-top: 3px dashed rgba(255,255,255,.55);
+
+    #status {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      color: white;
+      background: rgba(0, 0, 0, 0.65);
+      padding: 12px;
+      font-size: 16px;
+      border-radius: 8px;
+      z-index: 10;
     }
   </style>
 </head>
+
 <body>
   <video id="video" autoplay playsinline muted></video>
   <canvas id="canvas"></canvas>
-  <div id="guide"><div id="splitLine"></div><div id="otherZone" class="zoneLabel">OTHER PERSON</div><div id="selfZone" class="zoneLabel">YOU / SELF</div></div>
-  <div id="hud">Starting camera...</div>
+
+  <div id="label">Waiting for hands...</div>
+  <div id="status">Phone/Cardboard POV Mode</div>
 
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
   <script>
     const video = document.getElementById("video");
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
-    const hud = document.getElementById("hud");
+    const label = document.getElementById("label");
+    const statusBox = document.getElementById("status");
 
-    // Best option: open this page from Flask: http://YOUR_PC_IP:5000/
-    // Fallback: add ?api=http://YOUR_PC_IP:5000 if you open the HTML another way.
-    const params = new URLSearchParams(window.location.search);
-    const API_URL = params.get("api") || window.location.origin || "http://192.168.0.78:5000";
-    const COMMAND_URL = API_URL + "/get_command";
-    const SAVE_URL = API_URL + "/save_sequence";
-    const PREDICT_URL = API_URL + "/predict";
+    let lastSendTime = 0;
+    const SEND_INTERVAL = 120; // milliseconds
 
-    const SEQ_LENGTH = 30;
-    const SPLIT_Y = 0.55;              // mounted phone: lower frame = you, upper frame = other person
-    const PREDICT_EVERY_FRAMES = 5;    // less lag/server spam, still real-time
-    const SMOOTH_WINDOW = 6;           // prediction voting to reduce flickering
-    const MIN_HAND_AREA = 0.0007;      // reject tiny false detections
-
-    let selfSeq = [], otherSeq = [];
-    let recordSeq = [];
-    let recording = false;
-    let recordRole = "self";
-    let selectedLabel = "none";
-    let statusText = "Ready";
-    let frameCounter = 0;
-    let predicting = false;
-    let latest = {
-      self: {label: "waiting", confidence: 0},
-      other: {label: "waiting", confidence: 0}
-    };
-    let smooth = { self: [], other: [] };
+    let selfHistory = [];
+    let otherHistory = [];
+    const HISTORY_LIMIT = 5;
 
     function resizeCanvas() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
     }
-    resizeCanvas();
+
     window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
 
-    function handBox(landmarks) {
-      let minX = 1, maxX = 0, minY = 1, maxY = 0;
-      for (const p of landmarks) {
-        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
-        minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
-      }
-      return {minX, maxX, minY, maxY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, area: (maxX-minX)*(maxY-minY)};
-    }
+    function getHandBox(hand) {
+      const xs = hand.map(lm => lm.x);
+      const ys = hand.map(lm => lm.y);
 
-    function normaliseHand(landmarks) {
-      // Wrist-relative + scale-normalised landmarks improve robustness to distance from camera.
-      const wrist = landmarks[0];
-      let maxDist = 1e-6;
-      for (const p of landmarks) {
-        const dx = p.x - wrist.x, dy = p.y - wrist.y, dz = p.z - wrist.z;
-        maxDist = Math.max(maxDist, Math.sqrt(dx*dx + dy*dy + dz*dz));
-      }
-      const arr = [];
-      for (const p of landmarks) {
-        arr.push((p.x - wrist.x) / maxDist, (p.y - wrist.y) / maxDist, (p.z - wrist.z) / maxDist);
-      }
-      return arr;
-    }
-
-    function makeTwoHandFrame(handsList) {
-      // Largest/clearest two hands first. Pad missing hands with zeros.
-      const sorted = handsList
-        .map(lm => ({lm, box: handBox(lm)}))
-        .filter(h => h.box.area >= MIN_HAND_AREA)
-        .sort((a, b) => b.box.area - a.box.area)
-        .slice(0, 2);
-
-      let frame = [];
-      for (let i = 0; i < 2; i++) {
-        if (sorted[i]) frame = frame.concat(normaliseHand(sorted[i].lm));
-        else frame = frame.concat(new Array(63).fill(0));
-      }
-      return frame;
-    }
-
-    function pushSequence(seq, frame) {
-      seq.push(frame);
-      if (seq.length > SEQ_LENGTH) seq.shift();
-    }
-
-    function stablePrediction(role, pred) {
-      if (!pred || !pred.label) return latest[role];
-      smooth[role].push(pred);
-      if (smooth[role].length > SMOOTH_WINDOW) smooth[role].shift();
-
-      const scores = {};
-      for (const p of smooth[role]) {
-        const label = p.label || "uncertain";
-        const conf = Number(p.confidence || 0);
-        scores[label] = (scores[label] || 0) + conf;
-      }
-      const best = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
-      const matching = smooth[role].filter(p => p.label === best[0]);
-      const avgConf = matching.reduce((s, p) => s + Number(p.confidence || 0), 0) / Math.max(1, matching.length);
-      return { label: best[0], confidence: avgConf };
-    }
-
-    function formatPred(p) {
-      if (!p) return "waiting";
-      const pct = ((p.confidence || 0) * 100).toFixed(1);
-      return `${p.label} (${pct}%)`;
-    }
-
-    async function saveSequence() {
-      try {
-        const res = await fetch(SAVE_URL, {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({ label: selectedLabel, role: recordRole, sequence: recordSeq })
-        });
-        const data = await res.json();
-        statusText = data.error ? `Save error: ${data.error}` : `Saved ${recordRole}: ${selectedLabel}`;
-      } catch (e) {
-        statusText = "Save error: check Flask/IP";
-      }
-      recordSeq = [];
-    }
-
-    async function sendDualPrediction() {
-      if (predicting) return;
-      const payload = {};
-      if (selfSeq.length === SEQ_LENGTH) payload.selfSequence = [...selfSeq];
-      if (otherSeq.length === SEQ_LENGTH) payload.otherSequence = [...otherSeq];
-      if (!payload.selfSequence && !payload.otherSequence) return;
-
-      predicting = true;
-      try {
-        const res = await fetch(PREDICT_URL, {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        if (data.self) latest.self = stablePrediction("self", data.self);
-        if (data.other) latest.other = stablePrediction("other", data.other);
-      } catch (e) {
-        latest.self = {label: "server error", confidence: 0};
-        latest.other = {label: "server error", confidence: 0};
-      } finally {
-        predicting = false;
-      }
-    }
-
-    async function checkCommand() {
-      try {
-        const res = await fetch(COMMAND_URL);
-        const data = await res.json();
-        if (data.record && data.label && !recording) {
-          selectedLabel = data.label;
-          recordRole = data.role || "self";
-          recordSeq = [];
-          recording = true;
-          statusText = `Recording ${recordRole}: ${selectedLabel}`;
-        }
-      } catch (e) {
-        // Keep quiet during temporary Wi-Fi drops.
-      }
-    }
-    setInterval(checkCommand, 400);
-
-    const hands = new Hands({ locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
-    hands.setOptions({
-      maxNumHands: 4,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.55,
-      minTrackingConfidence: 0.55
-    });
-
-    hands.onResults(results => {
-      frameCounter++;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
-
-      let selfHands = [], otherHands = [];
-
-      if (results.multiHandLandmarks && results.multiHandLandmarks.length) {
-        for (const lm of results.multiHandLandmarks) {
-          const box = handBox(lm);
-          if (box.area < MIN_HAND_AREA) continue;
-
-          // Use vertical position for mounted phone/cardboard setup.
-          // Backup cue: very low/wide hands are almost always self-view.
-          const isSelf = box.cy >= SPLIT_Y;
-          if (isSelf) selfHands.push(lm); else otherHands.push(lm);
-
-          drawConnectors(ctx, lm, HAND_CONNECTIONS, { color: isSelf ? "#00ff66" : "#00aaff", lineWidth: 4 });
-          drawLandmarks(ctx, lm, { color: isSelf ? "#ff3333" : "#ffff33", radius: 3 });
-        }
-
-        if (selfHands.length) pushSequence(selfSeq, makeTwoHandFrame(selfHands)); else selfSeq = [];
-        if (otherHands.length) pushSequence(otherSeq, makeTwoHandFrame(otherHands)); else otherSeq = [];
-
-        if (recording) {
-          const sourceHands = recordRole === "self" ? selfHands : otherHands;
-          if (sourceHands.length) {
-            recordSeq.push(makeTwoHandFrame(sourceHands));
-            if (recordSeq.length >= SEQ_LENGTH) {
-              recording = false;
-              saveSequence();
-            }
-          }
-        } else if (frameCounter % PREDICT_EVERY_FRAMES === 0) {
-          sendDualPrediction();
-        }
-      } else {
-        selfSeq = []; otherSeq = [];
-        if (recording) { recording = false; recordSeq = []; statusText = "Recording cancelled: no hands"; }
-      }
-
-      hud.innerText =
-        `${statusText}\n` +
-        `YOU:   ${formatPred(latest.self)}   [${selfSeq.length}/${SEQ_LENGTH}]\n` +
-        `OTHER: ${formatPred(latest.other)}   [${otherSeq.length}/${SEQ_LENGTH}]\n` +
-        `Recording: ${recordRole} ${recordSeq.length}/${SEQ_LENGTH}`;
-    });
-
-    async function startCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30, max: 60 }
-        },
-        audio: false
-      });
-      video.srcObject = stream;
-      video.onloadedmetadata = () => {
-        video.play();
-        async function loop() {
-          await hands.send({ image: video });
-          requestAnimationFrame(loop);
-        }
-        loop();
+      return {
+        minX: Math.min(...xs),
+        maxX: Math.max(...xs),
+        minY: Math.min(...ys),
+        maxY: Math.max(...ys)
       };
     }
 
-    startCamera().catch(err => { hud.innerText = "Camera error: " + err.message; });
+    function getHandSize(hand) {
+      const box = getHandBox(hand);
+      const width = box.maxX - box.minX;
+      const height = box.maxY - box.minY;
+      return width * height;
+    }
+
+    function getAverageY(hand) {
+      return hand.reduce((sum, lm) => sum + lm.y, 0) / hand.length;
+    }
+
+    function getAverageX(hand) {
+      return hand.reduce((sum, lm) => sum + lm.x, 0) / hand.length;
+    }
+
+    function classifyHandsForPOV(allHands) {
+      const selfHands = [];
+      const otherHands = [];
+
+      if (!allHands || allHands.length === 0) {
+        return { selfHands, otherHands };
+      }
+
+      const enriched = allHands.map(hand => {
+        return {
+          hand: hand,
+          size: getHandSize(hand),
+          avgY: getAverageY(hand),
+          avgX: getAverageX(hand)
+        };
+      });
+
+      /*
+        POV/Cardboard logic:
+        SELF = wearer hands, usually closer to camera, larger, and lower in frame.
+        OTHER = person in front, usually smaller and more central/upper.
+      */
+
+      enriched.forEach(item => {
+        const isVeryClose = item.size > 0.075;
+        const isLowerFrame = item.avgY > 0.56;
+        const isMediumCloseAndLow = item.size > 0.045 && item.avgY > 0.48;
+
+        if (isVeryClose || isLowerFrame || isMediumCloseAndLow) {
+          selfHands.push(item.hand);
+        } else {
+          otherHands.push(item.hand);
+        }
+      });
+
+      /*
+        Safety fallback:
+        If all hands were classified as SELF and there are 3–4 hands,
+        keep the largest/lower hands as SELF and move smaller/upper hands to OTHER.
+      */
+      if (selfHands.length > 2 && otherHands.length === 0) {
+        const sorted = enriched.sort((a, b) => {
+          const scoreA = a.size + (a.avgY * 0.05);
+          const scoreB = b.size + (b.avgY * 0.05);
+          return scoreB - scoreA;
+        });
+
+        selfHands.length = 0;
+        otherHands.length = 0;
+
+        sorted.forEach((item, index) => {
+          if (index < 2) {
+            selfHands.push(item.hand);
+          } else {
+            otherHands.push(item.hand);
+          }
+        });
+      }
+
+      return { selfHands, otherHands };
+    }
+
+    function smoothPrediction(history, prediction) {
+      if (!prediction || !prediction.label) {
+        return prediction;
+      }
+
+      history.push(prediction);
+
+      if (history.length > HISTORY_LIMIT) {
+        history.shift();
+      }
+
+      const counts = {};
+      let best = prediction;
+
+      history.forEach(p => {
+        if (!p || !p.label) return;
+
+        if (!counts[p.label]) {
+          counts[p.label] = {
+            label: p.label,
+            count: 0,
+            confidenceSum: 0
+          };
+        }
+
+        counts[p.label].count += 1;
+        counts[p.label].confidenceSum += Number(p.confidence || 0);
+      });
+
+      Object.values(counts).forEach(item => {
+        const avgConfidence = item.confidenceSum / item.count;
+
+        if (
+          item.count > (counts[best.label]?.count || 0) ||
+          (item.count === (counts[best.label]?.count || 0) && avgConfidence > Number(best.confidence || 0))
+        ) {
+          best = {
+            label: item.label,
+            confidence: avgConfidence.toFixed(1)
+          };
+        }
+      });
+
+      return best;
+    }
+
+    function formatPrediction(name, prediction) {
+      if (!prediction || !prediction.label) {
+        return `${name}: waiting...`;
+      }
+
+      const confidence = Number(prediction.confidence || 0);
+
+      if (prediction.label === "none" || confidence < 60) {
+        return `${name}: unsure`;
+      }
+
+      return `${name}: ${prediction.label} (${confidence.toFixed(1)}%)`;
+    }
+
+    function drawHand(hand, color) {
+      const points = hand.map(lm => {
+        return {
+          x: lm.x * canvas.width,
+          y: lm.y * canvas.height
+        };
+      });
+
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = 3;
+
+      points.forEach(p => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      const connections = [
+        [0,1],[1,2],[2,3],[3,4],
+        [0,5],[5,6],[6,7],[7,8],
+        [0,9],[9,10],[10,11],[11,12],
+        [0,13],[13,14],[14,15],[15,16],
+        [0,17],[17,18],[18,19],[19,20],
+        [5,9],[9,13],[13,17]
+      ];
+
+      connections.forEach(([a, b]) => {
+        ctx.beginPath();
+        ctx.moveTo(points[a].x, points[a].y);
+        ctx.lineTo(points[b].x, points[b].y);
+        ctx.stroke();
+      });
+    }
+
+    async function sendForPrediction(selfHands, otherHands) {
+      try {
+        const response = await fetch("/predict_dual", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            selfHands: selfHands,
+            otherHands: otherHands
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error("Prediction request failed");
+        }
+
+        const data = await response.json();
+
+        const smoothSelf = smoothPrediction(selfHistory, data.self);
+        const smoothOther = smoothPrediction(otherHistory, data.other);
+
+        label.innerText =
+          formatPrediction("YOU", smoothSelf) + "\n" +
+          formatPrediction("OTHER", smoothOther);
+
+      } catch (error) {
+        label.innerText = "Backend not connected";
+        console.error(error);
+      }
+    }
+
+    function onResults(results) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+        label.innerText = "Waiting for hands...";
+        statusBox.innerText = "No hands detected";
+        return;
+      }
+
+      const { selfHands, otherHands } = classifyHandsForPOV(results.multiHandLandmarks);
+
+      selfHands.forEach(hand => drawHand(hand, "lime"));
+      otherHands.forEach(hand => drawHand(hand, "cyan"));
+
+      statusBox.innerText =
+        `Detected hands: ${results.multiHandLandmarks.length} | YOU: ${selfHands.length} | OTHER: ${otherHands.length}`;
+
+      const now = Date.now();
+
+      if (now - lastSendTime > SEND_INTERVAL) {
+        lastSendTime = now;
+        sendForPrediction(selfHands, otherHands);
+      }
+    }
+
+    const hands = new Hands({
+      locateFile: file => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+      }
+    });
+
+    hands.setOptions({
+      maxNumHands: 4,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.65,
+      minTrackingConfidence: 0.65
+    });
+
+    hands.onResults(onResults);
+
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          },
+          audio: false
+        });
+
+        video.srcObject = stream;
+
+        video.onloadedmetadata = () => {
+          video.play();
+
+          const camera = new Camera(video, {
+            onFrame: async () => {
+              await hands.send({ image: video });
+            },
+            width: 1280,
+            height: 720
+          });
+
+          camera.start();
+        };
+
+      } catch (error) {
+        label.innerText = "Camera permission error";
+        console.error(error);
+      }
+    }
+
+    startCamera();
   </script>
 </body>
 </html>
