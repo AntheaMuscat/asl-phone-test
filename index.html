@@ -127,7 +127,16 @@
     });
     hands.onResults(results => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+      const scale = 0.8;
+      const w = canvas.width * scale;
+      const h = canvas.height * scale;
+      ctx.drawImage(
+        results.image,
+        (canvas.width - w) / 2,
+        (canvas.height - h) / 2,
+        w,
+        h
+      );
       let selfHands = 0;
       let otherHands = 0;
       let selfLandmarksList = [];
@@ -186,14 +195,17 @@
             ideal: "environment"
           },
           width: {
-            ideal: 1280
+            ideal: 1920
           },
           height: {
-            ideal: 720
-          }
+            ideal: 1080
+          },
+          advanced: [{
+            zoom: 0.5
+          }]
         },
         audio: false
-      });
+      }, );
       video.srcObject = stream;
       video.onloadedmetadata = () => {
         video.play();
