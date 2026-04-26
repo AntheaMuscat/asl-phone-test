@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html>
-
 <head>
   <title>ASL Recognition</title>
   <style>
@@ -49,46 +48,49 @@
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
     const label = document.getElementById("label");
-    const API_URL = "http://192.168.0.78:5000/predict"; // change if laptop IP changes
+
+    const API_URL = "http://192.168.0.78:5000/predict";
     const SEQ_LENGTH = 30;
     const SELF_RATIO = 0.65;
-    const RESET_THRESHOLD = 90;
+
     let selfSequence = [];
     let lastPrediction = "Waiting...";
     let predicting = false;
-    let noHandFrames = 0;
 
     function resizeCanvas() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
     }
+
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
 
     function getHandSize(landmarks) {
-      let minX = 1,
-        maxX = 0,
-        minY = 1,
-        maxY = 0;
+      let minX = 1, maxX = 0, minY = 1, maxY = 0;
+
       for (const p of landmarks) {
         minX = Math.min(minX, p.x);
         maxX = Math.max(maxX, p.x);
         minY = Math.min(minY, p.y);
         maxY = Math.max(maxY, p.y);
       }
+
       return (maxX - minX) * (maxY - minY);
     }
 
     function flatten(landmarks) {
       const arr = [];
+
       for (const p of landmarks) {
         arr.push(p.x, p.y, p.z);
       }
+
       return arr;
     }
 
     function makeTwoHandFrame(selfHandsLandmarks) {
       let frame = [];
+
       for (let i = 0; i < 2; i++) {
         if (selfHandsLandmarks[i]) {
           frame = frame.concat(flatten(selfHandsLandmarks[i]));
@@ -96,10 +98,13 @@
           frame = frame.concat(new Array(63).fill(0));
         }
       }
-      return frame; // 126 values
+
+      return frame;
     }
+
     async function sendPrediction(sequence) {
       console.log("Sending frame length:", sequence[0].length);
+
       try {
         const res = await fetch(API_URL, {
           method: "POST",
@@ -110,118 +115,141 @@
             sequence
           })
         });
+
         const data = await res.json();
         lastPrediction = `${data.label} (${(data.confidence * 100).toFixed(1)}%)`;
       } catch (e) {
         lastPrediction = "Server error";
       }
     }
+
     const hands = new Hands({
       locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
     });
+
     hands.setOptions({
       maxNumHands: 6,
       modelComplexity: 1,
       minDetectionConfidence: 0.3,
       minTrackingConfidence: 0.3
     });
+
     hands.onResults(results => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const scale = 0.8;
-      const w = canvas.width * scale;
-      const h = canvas.height * scale;
-      ctx.drawImage(
-        results.image,
-        (canvas.width - w) / 2,
-        (canvas.height - h) / 2,
-        w,
-        h
-      );
+
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
       let selfHands = 0;
       let otherHands = 0;
       let selfLandmarksList = [];
+
       if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        noHandFrames = 0;
         const handsData = results.multiHandLandmarks.map(l => ({
           landmarks: l,
           size: getHandSize(l)
         }));
+
         const maxSize = Math.max(...handsData.map(h => h.size));
+
         for (const hand of handsData) {
           const isSelf = hand.size >= maxSize * SELF_RATIO;
+
           if (isSelf) {
             selfHands++;
             selfLandmarksList.push(hand.landmarks);
           } else {
             otherHands++;
           }
+
           drawConnectors(ctx, hand.landmarks, HAND_CONNECTIONS, {
             color: isSelf ? "#00FF00" : "#00AAFF",
             lineWidth: 3
           });
+
           drawLandmarks(ctx, hand.landmarks, {
             color: isSelf ? "#FF0000" : "#FFFF00",
             radius: 3
           });
         }
+
         if (selfLandmarksList.length > 0) {
           const twoHandFrame = makeTwoHandFrame(selfLandmarksList);
+
           selfSequence.push(twoHandFrame);
+
           if (selfSequence.length > SEQ_LENGTH) {
             selfSequence.shift();
           }
+
           if (selfSequence.length === SEQ_LENGTH && !predicting) {
             predicting = true;
+
             sendPrediction([...selfSequence]).finally(() => {
               predicting = false;
             });
           }
         }
+
       } else {
-        noHandFrames++;
-        if (noHandFrames > RESET_THRESHOLD) {
-          selfSequence = [];
-        }
+        selfSequence = [];
+        lastPrediction = "Waiting...";
       }
+
       label.innerText =
         `You: ${selfHands} | Other: ${otherHands}\n` +
         `Seq: ${selfSequence.length}/${SEQ_LENGTH} | Frame: ${selfSequence[0]?.length || 0}\n` +
         `Prediction: ${lastPrediction}`;
     });
+
     async function startCamera() {
+      const tempStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false
+      });
+
+      tempStream.getTracks().forEach(track => track.stop());
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cameras = devices.filter(device => device.kind === "videoinput");
+
+      console.log("Available cameras:", cameras);
+
+      let selectedCamera =
+        cameras.find(cam => cam.label.toLowerCase().includes("ultra")) ||
+        cameras.find(cam => cam.label.toLowerCase().includes("wide")) ||
+        cameras.find(cam => cam.label.toLowerCase().includes("back")) ||
+        cameras.find(cam => cam.label.toLowerCase().includes("rear")) ||
+        cameras.find(cam => cam.label.toLowerCase().includes("environment")) ||
+        cameras[0];
+
+      console.log("Selected camera:", selectedCamera);
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: {
-            ideal: "environment"
-          },
-          width: {
-            ideal: 1920
-          },
-          height: {
-            ideal: 1080
-          },
-          advanced: [{
-            zoom: 0.5
-          }]
+          deviceId: selectedCamera ? { exact: selectedCamera.deviceId } : undefined,
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
         },
         audio: false
-      }, );
+      });
+
       video.srcObject = stream;
+
       video.onloadedmetadata = () => {
         video.play();
+
         async function loop() {
-          await hands.send({
-            image: video
-          });
+          await hands.send({ image: video });
           requestAnimationFrame(loop);
         }
+
         loop();
       };
     }
+
     startCamera().catch(err => {
       label.innerText = "Camera error: " + err.name + " - " + err.message;
     });
   </script>
 </body>
-
 </html>
