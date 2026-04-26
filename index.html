@@ -1,8 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>ASL Recorder (Phone)</title>
-
+  <title>ASL Phone Recorder + Recognition</title>
   <style>
     body {
       margin: 0;
@@ -23,13 +22,14 @@
       top: 20px;
       left: 20px;
       color: lime;
-      background: rgba(0,0,0,0.7);
+      background: rgba(0,0,0,0.75);
       padding: 20px;
-      font-size: 32px;
+      font-size: 34px;
       font-weight: bold;
       border-radius: 12px;
       z-index: 10;
       white-space: pre-line;
+      line-height: 1.35;
     }
   </style>
 </head>
@@ -51,14 +51,19 @@
     const API_URL = "http://192.168.0.78:5000";
     const COMMAND_URL = API_URL + "/get_command";
     const SAVE_URL = API_URL + "/save_sequence";
+    const PREDICT_URL = API_URL + "/predict";
 
     const SEQ_LENGTH = 30;
     const SELF_RATIO = 0.65;
 
-    let sequence = [];
+    let recordSequence = [];
+    let predictSequence = [];
+
     let recording = false;
     let selectedLabel = "none";
     let statusText = "Waiting...";
+    let predictionText = "Waiting...";
+    let predicting = false;
 
     function resizeCanvas() {
       canvas.width = window.innerWidth;
@@ -100,27 +105,54 @@
         }
       }
 
-      return frame; // 126
+      return frame;
     }
 
     async function saveSequence() {
       try {
-        await fetch(SAVE_URL, {
+        const res = await fetch(SAVE_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             label: selectedLabel,
-            sequence: sequence
+            sequence: recordSequence
           })
         });
 
-        statusText = `Saved: ${selectedLabel}`;
-      } catch {
+        const data = await res.json();
+
+        if (data.error) {
+          statusText = "Save error: " + data.error;
+        } else {
+          statusText = `Saved: ${selectedLabel}`;
+        }
+      } catch (e) {
         statusText = "Save error";
+      }
+
+      recordSequence = [];
+    }
+
+    async function sendPrediction(sequence) {
+      try {
+        const res = await fetch(PREDICT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sequence })
+        });
+
+        const data = await res.json();
+
+        if (data.error) {
+          predictionText = "Prediction error";
+        } else {
+          predictionText = `${data.label} (${(data.confidence * 100).toFixed(1)}%)`;
+        }
+      } catch (e) {
+        predictionText = "Server error";
       }
     }
 
-    // 🔥 CHECK COMMAND FROM LAPTOP
     async function checkCommand() {
       try {
         const res = await fetch(COMMAND_URL);
@@ -128,7 +160,7 @@
 
         if (data.record && data.label && !recording) {
           selectedLabel = data.label;
-          sequence = [];
+          recordSequence = [];
           recording = true;
           statusText = `Recording ${selectedLabel}...`;
         }
@@ -154,7 +186,6 @@
     hands.onResults(results => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // slight zoom-out for better framing
       const scale = 0.75;
       const w = canvas.width * scale;
       const h = canvas.height * scale;
@@ -195,29 +226,52 @@
           });
         }
 
-        if (recording && selfHands.length > 0) {
+        if (selfHands.length > 0) {
           const frame = makeTwoHandFrame(selfHands);
 
-          sequence.push(frame);
+          // Recording mode
+          if (recording) {
+            recordSequence.push(frame);
 
-          if (sequence.length >= SEQ_LENGTH) {
-            recording = false;
-            saveSequence();
+            if (recordSequence.length >= SEQ_LENGTH) {
+              recording = false;
+              saveSequence();
+            }
+          }
+
+          // Live prediction mode
+          if (!recording) {
+            predictSequence.push(frame);
+
+            if (predictSequence.length > SEQ_LENGTH) {
+              predictSequence.shift();
+            }
+
+            if (predictSequence.length === SEQ_LENGTH && !predicting) {
+              predicting = true;
+
+              sendPrediction([...predictSequence]).finally(() => {
+                predicting = false;
+              });
+            }
           }
         }
 
       } else {
-        // reset if hands disappear during recording
+        predictSequence = [];
+
         if (recording) {
           recording = false;
-          sequence = [];
-          statusText = "Reset (no hands)";
+          recordSequence = [];
+          statusText = "Reset: no hands";
         }
       }
 
       label.innerText =
         `${statusText}\n` +
-        `Frames: ${sequence.length}/${SEQ_LENGTH}`;
+        `Record: ${recordSequence.length}/${SEQ_LENGTH}\n` +
+        `Predict: ${predictSequence.length}/${SEQ_LENGTH}\n` +
+        `Prediction: ${predictionText}`;
     });
 
     async function startCamera() {
