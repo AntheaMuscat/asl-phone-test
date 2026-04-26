@@ -1,8 +1,7 @@
 <!DOCTYPE html>
 <html>
-
 <head>
-  <title>ASL Recognition</title>
+  <title>ASL Phone Recorder</title>
   <style>
     body {
       margin: 0;
@@ -11,27 +10,37 @@
       font-family: Arial, sans-serif;
     }
 
-    video,
-    canvas {
+    video, canvas {
       position: absolute;
       width: 100vw;
       height: 100vh;
       object-fit: cover;
     }
 
-    #label {
+    #panel {
       position: absolute;
       top: 20px;
       left: 20px;
       color: lime;
-      background: rgba(0, 0, 0, 0.75);
+      background: rgba(0,0,0,0.8);
       padding: 18px 24px;
-      font-size: 36px;
+      font-size: 30px;
       font-weight: bold;
       line-height: 1.4;
       border-radius: 12px;
       white-space: pre-line;
       z-index: 10;
+    }
+
+    select, button {
+      font-size: 28px;
+      margin-top: 10px;
+      padding: 8px 12px;
+      border-radius: 8px;
+    }
+
+    button {
+      font-weight: bold;
     }
   </style>
 </head>
@@ -39,7 +48,23 @@
 <body>
   <video id="video" autoplay playsinline muted></video>
   <canvas id="canvas"></canvas>
-  <div id="label">Starting...</div>
+
+  <div id="panel">
+    <div id="label">Starting...</div>
+
+    <select id="signLabel">
+      <option value="yes">yes</option>
+      <option value="no">no</option>
+      <option value="hello">hello</option>
+      <option value="drink">drink</option>
+      <option value="computer">computer</option>
+      <option value="neutral">neutral</option>
+    </select>
+
+    <br>
+
+    <button onclick="startRecording()">Record Sign</button>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
@@ -49,46 +74,54 @@
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
     const label = document.getElementById("label");
-    const API_URL = "http://192.168.0.78:5000/predict";
+    const signLabel = document.getElementById("signLabel");
+
+    const API_SAVE_URL = "http://192.168.0.78:5000/save_sequence";
+
     const SEQ_LENGTH = 30;
     const SELF_RATIO = 0.65;
+
     let recording = false;
-    let waitingForHandsToLeave = false;
-    let selfSequence = [];
-    let lastPrediction = "Waiting...";
-    let predicting = false;
+    let sequence = [];
+    let currentSelfFrame = null;
+    let selfHands = 0;
+    let otherHands = 0;
+    let statusText = "Waiting...";
 
     function resizeCanvas() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
     }
+
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
 
     function getHandSize(landmarks) {
-      let minX = 1,
-        maxX = 0,
-        minY = 1,
-        maxY = 0;
+      let minX = 1, maxX = 0, minY = 1, maxY = 0;
+
       for (const p of landmarks) {
         minX = Math.min(minX, p.x);
         maxX = Math.max(maxX, p.x);
         minY = Math.min(minY, p.y);
         maxY = Math.max(maxY, p.y);
       }
+
       return (maxX - minX) * (maxY - minY);
     }
 
     function flatten(landmarks) {
       const arr = [];
+
       for (const p of landmarks) {
         arr.push(p.x, p.y, p.z);
       }
+
       return arr;
     }
 
     function makeTwoHandFrame(selfHandsLandmarks) {
       let frame = [];
+
       for (let i = 0; i < 2; i++) {
         if (selfHandsLandmarks[i]) {
           frame = frame.concat(flatten(selfHandsLandmarks[i]));
@@ -96,107 +129,127 @@
           frame = frame.concat(new Array(63).fill(0));
         }
       }
+
       return frame;
     }
-    async function sendPrediction(sequence) {
-      console.log("Sending frame length:", sequence[0].length);
+
+    function startRecording() {
+      sequence = [];
+      recording = true;
+      statusText = "Recording...";
+    }
+
+    async function saveSequence() {
+      const selectedLabel = signLabel.value;
+
+      statusText = "Saving landmarks...";
+
       try {
-        const res = await fetch(API_URL, {
+        const res = await fetch(API_SAVE_URL, {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            sequence
+            label: selectedLabel,
+            sequence: sequence
           })
         });
+
         const data = await res.json();
-        lastPrediction = `${data.label} (${(data.confidence * 100).toFixed(1)}%)`;
+        statusText = `Saved: ${selectedLabel}`;
+        console.log(data);
       } catch (e) {
-        lastPrediction = "Server error";
+        statusText = "Save error";
+        console.error(e);
       }
+
+      recording = false;
+      sequence = [];
     }
+
     const hands = new Hands({
       locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
     });
+
     hands.setOptions({
       maxNumHands: 6,
       modelComplexity: 1,
       minDetectionConfidence: 0.3,
       minTrackingConfidence: 0.3
     });
+
     hands.onResults(results => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
-      let selfHands = 0;
-      let otherHands = 0;
-      let selfLandmarksList = [];
+
+      selfHands = 0;
+      otherHands = 0;
+      currentSelfFrame = null;
+
       if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
         const handsData = results.multiHandLandmarks.map(l => ({
           landmarks: l,
           size: getHandSize(l)
         }));
+
         const maxSize = Math.max(...handsData.map(h => h.size));
         let selfLandmarksList = [];
+
         for (const hand of handsData) {
           const isSelf = hand.size >= maxSize * SELF_RATIO;
+
           if (isSelf) {
             selfHands++;
             selfLandmarksList.push(hand.landmarks);
           } else {
             otherHands++;
           }
+
           drawConnectors(ctx, hand.landmarks, HAND_CONNECTIONS, {
             color: isSelf ? "#00FF00" : "#00AAFF",
             lineWidth: 3
           });
+
           drawLandmarks(ctx, hand.landmarks, {
             color: isSelf ? "#FF0000" : "#FFFF00",
             radius: 3
           });
         }
-        if (!waitingForHandsToLeave && selfLandmarksList.length > 0) {
-          if (!recording) {
-            recording = true;
-            selfSequence = [];
-            lastPrediction = "Recording...";
-          }
-          if (recording && selfSequence.length < SEQ_LENGTH) {
-            const twoHandFrame = makeTwoHandFrame(selfLandmarksList);
-            selfSequence.push(twoHandFrame);
-          }
-          if (selfSequence.length === SEQ_LENGTH && !predicting) {
-            recording = false;
-            predicting = true;
-            lastPrediction = "Predicting...";
-            sendPrediction([...selfSequence]).finally(() => {
-              predicting = false;
-              waitingForHandsToLeave = true;
-            });
-          }
+
+        if (selfLandmarksList.length > 0) {
+          currentSelfFrame = makeTwoHandFrame(selfLandmarksList);
         }
-      } else {
-        if (waitingForHandsToLeave) {
-          waitingForHandsToLeave = false;
-          selfSequence = [];
-          lastPrediction = "Waiting...";
-        }
-        recording = false;
       }
+
+      if (recording && currentSelfFrame) {
+        sequence.push(currentSelfFrame);
+
+        if (sequence.length >= SEQ_LENGTH) {
+          recording = false;
+          saveSequence();
+        }
+      }
+
       label.innerText =
+        `Label: ${signLabel.value}\n` +
         `You: ${selfHands} | Other: ${otherHands}\n` +
-        `Seq: ${selfSequence.length}/${SEQ_LENGTH}\n` +
-        `Status: ${lastPrediction}`;
+        `Recording: ${recording ? "YES" : "NO"}\n` +
+        `Seq: ${sequence.length}/${SEQ_LENGTH}\n` +
+        `Status: ${statusText}`;
     });
+
     async function startCamera() {
       const tempStream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: false
       });
+
       tempStream.getTracks().forEach(track => track.stop());
+
       const devices = await navigator.mediaDevices.enumerateDevices();
       const cameras = devices.filter(device => device.kind === "videoinput");
-      console.log("Available cameras:", cameras);
+
       let selectedCamera =
         cameras.find(cam => cam.label.toLowerCase().includes("ultra")) ||
         cameras.find(cam => cam.label.toLowerCase().includes("wide")) ||
@@ -204,37 +257,33 @@
         cameras.find(cam => cam.label.toLowerCase().includes("rear")) ||
         cameras.find(cam => cam.label.toLowerCase().includes("environment")) ||
         cameras[0];
-      console.log("Selected camera:", selectedCamera);
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          deviceId: selectedCamera ? {
-            exact: selectedCamera.deviceId
-          } : undefined,
-          width: {
-            ideal: 1920
-          },
-          height: {
-            ideal: 1080
-          }
+          deviceId: selectedCamera ? { exact: selectedCamera.deviceId } : undefined,
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
         },
         audio: false
       });
+
       video.srcObject = stream;
+
       video.onloadedmetadata = () => {
         video.play();
+
         async function loop() {
-          await hands.send({
-            image: video
-          });
+          await hands.send({ image: video });
           requestAnimationFrame(loop);
         }
+
         loop();
       };
     }
+
     startCamera().catch(err => {
       label.innerText = "Camera error: " + err.name + " - " + err.message;
     });
   </script>
 </body>
-
 </html>
