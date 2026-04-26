@@ -43,6 +43,21 @@
       font-size: 16px;
       border-radius: 8px;
       z-index: 10;
+      white-space: pre-line;
+    }
+
+    #recordStatus {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      color: yellow;
+      background: rgba(0, 0, 0, 0.75);
+      padding: 14px;
+      font-size: 18px;
+      font-weight: bold;
+      border-radius: 10px;
+      z-index: 10;
+      white-space: pre-line;
     }
   </style>
 </head>
@@ -53,24 +68,51 @@
 
   <div id="label">Waiting for hands...</div>
   <div id="status">Phone/Cardboard POV Mode</div>
+  <div id="recordStatus">Not recording</div>
 
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
   <script>
+    /*
+      IMPORTANT:
+      If using GitHub Pages, this must be your Flask backend.
+      Example:
+      const API_BASE = "http://192.168.1.25:5000";
+
+      If using ngrok:
+      const API_BASE = "https://your-ngrok-link.ngrok-free.app";
+    */
+    const API_BASE = "http://YOUR_PC_IP:5000";
+
+    const SEQUENCE_LENGTH = 30;
+    const HAND_FEATURES = 126;
+    const SEND_INTERVAL = 120;
+    const COMMAND_INTERVAL = 700;
+    const HISTORY_LIMIT = 5;
+
     const video = document.getElementById("video");
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
+
     const label = document.getElementById("label");
     const statusBox = document.getElementById("status");
+    const recordStatus = document.getElementById("recordStatus");
 
     let lastSendTime = 0;
-    const SEND_INTERVAL = 120; // milliseconds
+    let lastCommandTime = 0;
+
+    let selfSequence = [];
+    let otherSequence = [];
 
     let selfHistory = [];
     let otherHistory = [];
-    const HISTORY_LIMIT = 5;
+
+    let currentCommand = {
+      record: false,
+      label: null,
+      role: "self"
+    };
 
     function resizeCanvas() {
       canvas.width = window.innerWidth;
@@ -103,10 +145,6 @@
       return hand.reduce((sum, lm) => sum + lm.y, 0) / hand.length;
     }
 
-    function getAverageX(hand) {
-      return hand.reduce((sum, lm) => sum + lm.x, 0) / hand.length;
-    }
-
     function classifyHandsForPOV(allHands) {
       const selfHands = [];
       const otherHands = [];
@@ -119,16 +157,9 @@
         return {
           hand: hand,
           size: getHandSize(hand),
-          avgY: getAverageY(hand),
-          avgX: getAverageX(hand)
+          avgY: getAverageY(hand)
         };
       });
-
-      /*
-        POV/Cardboard logic:
-        SELF = wearer hands, usually closer to camera, larger, and lower in frame.
-        OTHER = person in front, usually smaller and more central/upper.
-      */
 
       enriched.forEach(item => {
         const isVeryClose = item.size > 0.075;
@@ -142,11 +173,6 @@
         }
       });
 
-      /*
-        Safety fallback:
-        If all hands were classified as SELF and there are 3–4 hands,
-        keep the largest/lower hands as SELF and move smaller/upper hands to OTHER.
-      */
       if (selfHands.length > 2 && otherHands.length === 0) {
         const sorted = enriched.sort((a, b) => {
           const scoreA = a.size + (a.avgY * 0.05);
@@ -167,6 +193,75 @@
       }
 
       return { selfHands, otherHands };
+    }
+
+    function normaliseHand(hand) {
+      if (!hand) {
+        return Array(21 * 3).fill(0);
+      }
+
+      const wrist = hand[0];
+
+      const relative = hand.map(lm => {
+        return {
+          x: lm.x - wrist.x,
+          y: lm.y - wrist.y,
+          z: lm.z - wrist.z
+        };
+      });
+
+      let maxDist = 0.0001;
+
+      relative.forEach(lm => {
+        const dist = Math.sqrt(lm.x * lm.x + lm.y * lm.y + lm.z * lm.z);
+        if (dist > maxDist) {
+          maxDist = dist;
+        }
+      });
+
+      const features = [];
+
+      relative.forEach(lm => {
+        features.push(lm.x / maxDist);
+        features.push(lm.y / maxDist);
+        features.push(lm.z / maxDist);
+      });
+
+      return features;
+    }
+
+    function sortHandsByX(hands) {
+      return [...hands].sort((a, b) => {
+        const ax = a.reduce((sum, lm) => sum + lm.x, 0) / a.length;
+        const bx = b.reduce((sum, lm) => sum + lm.x, 0) / b.length;
+        return ax - bx;
+      });
+    }
+
+    function handsToFeatures(hands) {
+      const sorted = sortHandsByX(hands).slice(0, 2);
+
+      const leftHand = sorted[0] || null;
+      const rightHand = sorted[1] || null;
+
+      const features = [
+        ...normaliseHand(leftHand),
+        ...normaliseHand(rightHand)
+      ];
+
+      if (features.length !== HAND_FEATURES) {
+        return Array(HAND_FEATURES).fill(0);
+      }
+
+      return features;
+    }
+
+    function updateSequence(sequence, features) {
+      sequence.push(features);
+
+      if (sequence.length > SEQUENCE_LENGTH) {
+        sequence.shift();
+      }
     }
 
     function smoothPrediction(history, prediction) {
@@ -200,14 +295,15 @@
 
       Object.values(counts).forEach(item => {
         const avgConfidence = item.confidenceSum / item.count;
+        const currentBest = counts[best.label];
 
         if (
-          item.count > (counts[best.label]?.count || 0) ||
-          (item.count === (counts[best.label]?.count || 0) && avgConfidence > Number(best.confidence || 0))
+          item.count > (currentBest?.count || 0) ||
+          (item.count === (currentBest?.count || 0) && avgConfidence > Number(best.confidence || 0))
         ) {
           best = {
             label: item.label,
-            confidence: avgConfidence.toFixed(1)
+            confidence: avgConfidence
           };
         }
       });
@@ -222,11 +318,17 @@
 
       const confidence = Number(prediction.confidence || 0);
 
-      if (prediction.label === "none" || confidence < 60) {
+      if (
+        prediction.label === "none" ||
+        prediction.label === "uncertain" ||
+        prediction.label === "no hands" ||
+        prediction.label === "invalid" ||
+        confidence < 0.60
+      ) {
         return `${name}: unsure`;
       }
 
-      return `${name}: ${prediction.label} (${confidence.toFixed(1)}%)`;
+      return `${name}: ${prediction.label} (${(confidence * 100).toFixed(1)}%)`;
     }
 
     function drawHand(hand, color) {
@@ -264,16 +366,94 @@
       });
     }
 
-    async function sendForPrediction(selfHands, otherHands) {
+    async function checkCommand() {
       try {
-        const response = await fetch("/predict_dual", {
+        const response = await fetch(`${API_BASE}/get_command`);
+        const command = await response.json();
+
+        if (command.record) {
+          currentCommand = command;
+          recordStatus.innerText =
+            `Recording requested\nRole: ${command.role}\nLabel: ${command.label}`;
+        }
+
+      } catch (error) {
+        recordStatus.innerText = "Control offline";
+      }
+    }
+
+    async function saveSequenceIfRequested() {
+      if (!currentCommand.record || !currentCommand.label) {
+        return;
+      }
+
+      let sequenceToSave = null;
+
+      if (currentCommand.role === "self") {
+        if (selfSequence.length === SEQUENCE_LENGTH) {
+          sequenceToSave = selfSequence;
+        }
+      } else {
+        if (otherSequence.length === SEQUENCE_LENGTH) {
+          sequenceToSave = otherSequence;
+        }
+      }
+
+      if (!sequenceToSave) {
+        recordStatus.innerText = "Collecting sequence before saving...";
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE}/save_sequence`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            selfHands: selfHands,
-            otherHands: otherHands
+            label: currentCommand.label,
+            role: currentCommand.role,
+            sequence: sequenceToSave
+          })
+        });
+
+        const data = await response.json();
+
+        if (data.status === "saved") {
+          recordStatus.innerText =
+            `Saved\nRole: ${data.role}\nLabel: ${data.label}`;
+
+          currentCommand = {
+            record: false,
+            label: null,
+            role: "self"
+          };
+        }
+
+      } catch (error) {
+        recordStatus.innerText = "Save failed";
+        console.error(error);
+      }
+    }
+
+    async function sendForPrediction() {
+      try {
+        if (
+          selfSequence.length < SEQUENCE_LENGTH &&
+          otherSequence.length < SEQUENCE_LENGTH
+        ) {
+          label.innerText = "Collecting movement...";
+          return;
+        }
+
+        const response = await fetch(`${API_BASE}/predict`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            selfSequence: selfSequence.length === SEQUENCE_LENGTH ? selfSequence : null,
+            otherSequence: otherSequence.length === SEQUENCE_LENGTH ? otherSequence : null
           })
         });
 
@@ -310,14 +490,29 @@
       selfHands.forEach(hand => drawHand(hand, "lime"));
       otherHands.forEach(hand => drawHand(hand, "cyan"));
 
+      const selfFeatures = handsToFeatures(selfHands);
+      const otherFeatures = handsToFeatures(otherHands);
+
+      updateSequence(selfSequence, selfFeatures);
+      updateSequence(otherSequence, otherFeatures);
+
       statusBox.innerText =
-        `Detected hands: ${results.multiHandLandmarks.length} | YOU: ${selfHands.length} | OTHER: ${otherHands.length}`;
+        `Detected hands: ${results.multiHandLandmarks.length}\n` +
+        `YOU hands: ${selfHands.length} | OTHER hands: ${otherHands.length}\n` +
+        `YOU sequence: ${selfSequence.length}/${SEQUENCE_LENGTH}\n` +
+        `OTHER sequence: ${otherSequence.length}/${SEQUENCE_LENGTH}`;
 
       const now = Date.now();
 
       if (now - lastSendTime > SEND_INTERVAL) {
         lastSendTime = now;
-        sendForPrediction(selfHands, otherHands);
+        sendForPrediction();
+        saveSequenceIfRequested();
+      }
+
+      if (now - lastCommandTime > COMMAND_INTERVAL) {
+        lastCommandTime = now;
+        checkCommand();
       }
     }
 
