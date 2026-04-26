@@ -63,7 +63,7 @@
 </head>
 
 <body>
-  <video id="video" autoplay playsinline muted></video>
+  <video id="video" autoplay playsinline webkit-playsinline muted></video>
   <canvas id="canvas"></canvas>
 
   <div id="label">Waiting for hands...</div>
@@ -71,7 +71,6 @@
   <div id="recordStatus">Not recording</div>
 
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
   <script>
     /*
@@ -532,52 +531,40 @@
     hands.onResults(onResults);
 
     async function startCamera() {
-  try {
-    let stream;
+      try {
+        const constraints = {
+          video: {
+            facingMode: "environment",
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        };
 
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false
-      });
-    } catch (firstError) {
-      console.warn("Back camera failed, trying default camera", firstError);
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
 
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false
-      });
+        await video.play();
+
+        async function processFrame() {
+          if (video.readyState >= 2) {
+            await hands.send({ image: video });
+          }
+
+          requestAnimationFrame(processFrame);
+        }
+
+        processFrame();
+
+      } catch (error) {
+        label.innerText =
+          "Camera error:\n" +
+          error.name + "\n" +
+          error.message;
+
+        console.error(error);
+      }
     }
-
-    video.srcObject = stream;
-
-    video.onloadedmetadata = () => {
-      video.play();
-
-      const camera = new Camera(video, {
-        onFrame: async () => {
-          await hands.send({ image: video });
-        },
-        width: 1280,
-        height: 720
-      });
-
-      camera.start();
-    };
-
-  } catch (error) {
-    label.innerText =
-      "Camera error:\n" +
-      error.name + "\n" +
-      error.message;
-
-    console.error(error);
-  }
-}
 
     startCamera();
   </script>
