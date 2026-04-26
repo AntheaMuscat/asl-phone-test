@@ -107,11 +107,81 @@
     let selfHistory = [];
     let otherHistory = [];
 
+    let lastSelfLabel = null;
+    let lastOtherLabel = null;
+    let selfLowConfidenceCount = 0;
+    let otherLowConfidenceCount = 0;
+
+    const RESET_CONFIDENCE_DROP = 0.45;
+    const LOW_CONFIDENCE_LIMIT = 4;
+
     let currentCommand = {
       record: false,
       label: null,
       role: "self"
     };
+
+    function resetSequenceIfGestureChanged(role, prediction) {
+      if (!prediction || !prediction.label) return;
+
+      const labelName = prediction.label;
+      const confidence = Number(prediction.confidence || 0);
+
+      if (
+        labelName === "uncertain" ||
+        labelName === "no hands" ||
+        labelName === "invalid"
+      ) {
+        if (role === "self") {
+          selfLowConfidenceCount++;
+          if (selfLowConfidenceCount >= LOW_CONFIDENCE_LIMIT) {
+            selfSequence = [];
+            selfHistory = [];
+            lastSelfLabel = null;
+            selfLowConfidenceCount = 0;
+          }
+        } else {
+          otherLowConfidenceCount++;
+          if (otherLowConfidenceCount >= LOW_CONFIDENCE_LIMIT) {
+            otherSequence = [];
+            otherHistory = [];
+            lastOtherLabel = null;
+            otherLowConfidenceCount = 0;
+          }
+        }
+        return;
+      }
+
+      if (role === "self") {
+        selfLowConfidenceCount = 0;
+
+        if (
+          lastSelfLabel &&
+          lastSelfLabel !== labelName &&
+          confidence > RESET_CONFIDENCE_DROP
+        ) {
+          selfSequence = [];
+          selfHistory = [];
+        }
+
+        lastSelfLabel = labelName;
+      }
+
+      if (role === "other") {
+        otherLowConfidenceCount = 0;
+
+        if (
+          lastOtherLabel &&
+          lastOtherLabel !== labelName &&
+          confidence > RESET_CONFIDENCE_DROP
+        ) {
+          otherSequence = [];
+          otherHistory = [];
+        }
+
+        lastOtherLabel = labelName;
+      }
+    }
 
     function resizeCanvas() {
       canvas.width = window.innerWidth;
@@ -465,6 +535,9 @@
         const smoothSelf = smoothPrediction(selfHistory, data.self);
         const smoothOther = smoothPrediction(otherHistory, data.other);
 
+        resetSequenceIfGestureChanged("self", smoothSelf);
+        resetSequenceIfGestureChanged("other", smoothOther);
+
         label.innerText =
           formatPrediction("YOU", smoothSelf) + "\n" +
           formatPrediction("OTHER", smoothOther);
@@ -479,8 +552,9 @@
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+        selfSequence = [];
+        otherSequence = [];
         label.innerText = "Waiting for hands...";
-        statusBox.innerText = "No hands detected";
         return;
       }
 
