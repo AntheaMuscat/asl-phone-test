@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>ASL Phone Recorder + Recognition</title>
+  <title>ASL Dual User Recognition</title>
   <style>
     body {
       margin: 0;
@@ -24,7 +24,7 @@
       color: lime;
       background: rgba(0,0,0,0.75);
       padding: 20px;
-      font-size: 34px;
+      font-size: 30px;
       font-weight: bold;
       border-radius: 12px;
       z-index: 10;
@@ -51,18 +51,22 @@
     const API_URL = "http://192.168.0.78:5000";
     const COMMAND_URL = API_URL + "/get_command";
     const SAVE_URL = API_URL + "/save_sequence";
-    const PREDICT_URL = API_URL + "/predict";
+    const PREDICT_URL = API_URL + "/predict_dual";
 
     const SEQ_LENGTH = 30;
-    const SELF_RATIO = 0.65;
 
     let recordSequence = [];
-    let predictSequence = [];
+
+    let selfPredictSequence = [];
+    let otherPredictSequence = [];
 
     let recording = false;
     let selectedLabel = "none";
     let statusText = "Waiting...";
-    let predictionText = "Waiting...";
+
+    let selfPredictionText = "Waiting...";
+    let otherPredictionText = "Waiting...";
+
     let predicting = false;
 
     function resizeCanvas() {
@@ -88,18 +92,20 @@
 
     function flatten(landmarks) {
       const arr = [];
+
       for (const p of landmarks) {
         arr.push(p.x, p.y, p.z);
       }
+
       return arr;
     }
 
-    function makeTwoHandFrame(selfHands) {
+    function makeTwoHandFrame(handsArray) {
       let frame = [];
 
       for (let i = 0; i < 2; i++) {
-        if (selfHands[i]) {
-          frame = frame.concat(flatten(selfHands[i]));
+        if (handsArray[i]) {
+          frame = frame.concat(flatten(handsArray[i]));
         } else {
           frame = frame.concat(new Array(63).fill(0));
         }
@@ -133,23 +139,32 @@
       recordSequence = [];
     }
 
-    async function sendPrediction(sequence) {
+    async function sendPrediction(selfSequence, otherSequence) {
       try {
         const res = await fetch(PREDICT_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sequence })
+          body: JSON.stringify({
+            self_sequence: selfSequence,
+            other_sequence: otherSequence
+          })
         });
 
         const data = await res.json();
 
         if (data.error) {
-          predictionText = "Prediction error";
+          selfPredictionText = "Prediction error";
+          otherPredictionText = "Prediction error";
         } else {
-          predictionText = `${data.label} (${(data.confidence * 100).toFixed(1)}%)`;
+          selfPredictionText =
+            `${data.self.label} (${(data.self.confidence * 100).toFixed(1)}%)`;
+
+          otherPredictionText =
+            `${data.other.label} (${(data.other.confidence * 100).toFixed(1)}%)`;
         }
       } catch (e) {
-        predictionText = "Server error";
+        selfPredictionText = "Server error";
+        otherPredictionText = "Server error";
       }
     }
 
@@ -199,21 +214,30 @@
       );
 
       let selfHands = [];
+      let otherHands = [];
 
-      if (results.multiHandLandmarks) {
-        const handsData = results.multiHandLandmarks.map(l => ({
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        let detectedHands = results.multiHandLandmarks.map(l => ({
           landmarks: l,
           size: getHandSize(l)
         }));
 
-        const maxSize = Math.max(...handsData.map(h => h.size));
+        detectedHands.sort((a, b) => b.size - a.size);
 
-        for (const hand of handsData) {
-          const isSelf = hand.size >= maxSize * SELF_RATIO;
+        if (detectedHands.length > 0) {
+          selfHands.push(detectedHands[0].landmarks);
+        }
 
-          if (isSelf) {
-            selfHands.push(hand.landmarks);
-          }
+        if (detectedHands.length > 1) {
+          otherHands.push(detectedHands[1].landmarks);
+        }
+
+        if (detectedHands.length > 2) {
+          otherHands.push(detectedHands[2].landmarks);
+        }
+
+        for (const hand of detectedHands) {
+          const isSelf = selfHands.includes(hand.landmarks);
 
           drawConnectors(ctx, hand.landmarks, HAND_CONNECTIONS, {
             color: isSelf ? "#00FF00" : "#00AAFF",
@@ -226,39 +250,52 @@
           });
         }
 
-        if (selfHands.length > 0) {
-          const frame = makeTwoHandFrame(selfHands);
+        const selfFrame = makeTwoHandFrame(selfHands);
+        const otherFrame = makeTwoHandFrame(otherHands);
 
-          // Recording mode
-          if (recording) {
-            recordSequence.push(frame);
+        if (recording && selfHands.length > 0) {
+          recordSequence.push(selfFrame);
 
-            if (recordSequence.length >= SEQ_LENGTH) {
-              recording = false;
-              saveSequence();
-            }
+          if (recordSequence.length >= SEQ_LENGTH) {
+            recording = false;
+            saveSequence();
+          }
+        }
+
+        if (!recording) {
+          selfPredictSequence.push(selfFrame);
+          otherPredictSequence.push(otherFrame);
+
+          if (selfPredictSequence.length > SEQ_LENGTH) {
+            selfPredictSequence.shift();
           }
 
-          // Live prediction mode
-          if (!recording) {
-            predictSequence.push(frame);
+          if (otherPredictSequence.length > SEQ_LENGTH) {
+            otherPredictSequence.shift();
+          }
 
-            if (predictSequence.length > SEQ_LENGTH) {
-              predictSequence.shift();
-            }
+          if (
+            selfPredictSequence.length === SEQ_LENGTH &&
+            otherPredictSequence.length === SEQ_LENGTH &&
+            !predicting
+          ) {
+            predicting = true;
 
-            if (predictSequence.length === SEQ_LENGTH && !predicting) {
-              predicting = true;
-
-              sendPrediction([...predictSequence]).finally(() => {
-                predicting = false;
-              });
-            }
+            sendPrediction(
+              [...selfPredictSequence],
+              [...otherPredictSequence]
+            ).finally(() => {
+              predicting = false;
+            });
           }
         }
 
       } else {
-        predictSequence = [];
+        selfPredictSequence = [];
+        otherPredictSequence = [];
+
+        selfPredictionText = "No hands";
+        otherPredictionText = "No hands";
 
         if (recording) {
           recording = false;
@@ -270,8 +307,8 @@
       label.innerText =
         `${statusText}\n` +
         `Record: ${recordSequence.length}/${SEQ_LENGTH}\n` +
-        `Predict: ${predictSequence.length}/${SEQ_LENGTH}\n` +
-        `Prediction: ${predictionText}`;
+        `SELF: ${selfPredictSequence.length}/${SEQ_LENGTH} → ${selfPredictionText}\n` +
+        `OTHER: ${otherPredictSequence.length}/${SEQ_LENGTH} → ${otherPredictionText}`;
     });
 
     async function startCamera() {
