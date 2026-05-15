@@ -9,8 +9,10 @@
       --self: #62ff9f;
       --other: #5bdcff;
       --pink: #ff8edb;
-      --glass: rgba(0, 0, 0, 0.28);
+      --glass: rgba(0, 0, 0, 0.22);
+      --glass-strong: rgba(0, 0, 0, 0.42);
       --line: rgba(255, 255, 255, 0.14);
+      --text: #ffffff;
     }
 
     * {
@@ -23,13 +25,14 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: black;
+      background: #000;
       font-family: Arial, Helvetica, sans-serif;
-      color: white;
+      color: var(--text);
+      overscroll-behavior: none;
     }
 
     video, canvas {
-      position: absolute;
+      position: fixed;
       inset: 0;
       width: 100vw;
       height: 100vh;
@@ -41,7 +44,7 @@
     }
 
     #hud {
-      position: absolute;
+      position: fixed;
       inset: 0;
       z-index: 10;
       pointer-events: none;
@@ -53,25 +56,29 @@
       bottom: 0;
       left: 50%;
       width: 1px;
-      background: rgba(255,255,255,.16);
+      background: rgba(255, 255, 255, 0.10);
     }
 
-    #connection {
+    .topStatus {
       position: absolute;
-      top: 8px;
+      top: max(7px, env(safe-area-inset-top));
       left: 50%;
       transform: translateX(-50%);
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .pill {
       background: var(--glass);
       border: 1px solid var(--line);
       border-radius: 999px;
-      padding: 6px 12px;
-      font-size: 11px;
+      padding: 5px 10px;
+      font-size: 10px;
       font-weight: 900;
-      backdrop-filter: blur(7px);
+      backdrop-filter: blur(8px);
       white-space: nowrap;
-      max-width: 70vw;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      box-shadow: 0 6px 18px rgba(0,0,0,.22);
     }
 
     .connected {
@@ -82,106 +89,119 @@
       color: #ff6f8c;
     }
 
-    .sideHint {
+    .zoneHint {
       position: absolute;
-      top: 38px;
-      background: rgba(0,0,0,.22);
+      top: 35px;
+      font-size: 9px;
+      font-weight: 900;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      background: rgba(0,0,0,.16);
       border: 1px solid var(--line);
       border-radius: 999px;
-      padding: 5px 10px;
-      font-size: 10px;
-      font-weight: 900;
-      text-transform: uppercase;
-      letter-spacing: .08em;
+      padding: 4px 8px;
       backdrop-filter: blur(6px);
     }
 
     #selfHint {
-      left: 8vw;
+      left: 7vw;
       color: var(--self);
     }
 
     #otherHint {
-      right: 8vw;
+      right: 7vw;
       color: var(--other);
     }
 
     .floatingLabel {
       position: absolute;
-      bottom: 16px;
+      bottom: max(12px, env(safe-area-inset-bottom));
       background: var(--glass);
       border: 1px solid var(--line);
-      backdrop-filter: blur(7px);
+      backdrop-filter: blur(8px);
       color: white;
-      padding: 8px 12px;
+      padding: 7px 11px;
       border-radius: 999px;
-      font-size: clamp(12px, 2vw, 18px);
+      font-size: clamp(12px, 1.65vw, 17px);
       font-weight: 900;
-      max-width: 30vw;
+      max-width: 28vw;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      box-shadow: 0 8px 22px rgba(0,0,0,.28);
+      box-shadow: 0 8px 22px rgba(0,0,0,.24);
     }
 
     #selfFloating {
-      left: 8vw;
+      left: 7vw;
       border-color: rgba(98,255,159,.55);
     }
 
     #otherFloating {
-      right: 8vw;
+      right: 7vw;
       border-color: rgba(91,220,255,.55);
     }
 
-    .tinyWords {
+    .wordRow {
       position: absolute;
-      bottom: 55px;
-      width: 30vw;
+      bottom: max(48px, calc(env(safe-area-inset-bottom) + 48px));
+      width: 28vw;
+      height: 23px;
       display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      align-items: center;
       gap: 5px;
       overflow: hidden;
     }
 
     #selfWords {
-      left: 8vw;
+      left: 7vw;
+      justify-content: flex-start;
     }
 
     #otherWords {
-      right: 8vw;
+      right: 7vw;
       justify-content: flex-end;
     }
 
     .chip {
-      background: rgba(255,255,255,.13);
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      max-width: 80px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      background: rgba(255,255,255,.11);
       border: 1px solid rgba(255,255,255,.10);
       border-radius: 999px;
       padding: 4px 7px;
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 900;
-      white-space: nowrap;
       backdrop-filter: blur(5px);
     }
 
     .centerActions {
       position: absolute;
       left: 50%;
-      bottom: 14px;
+      bottom: max(12px, env(safe-area-inset-bottom));
       transform: translateX(-50%);
       display: flex;
-      gap: 6px;
+      flex-direction: row;
+      gap: 5px;
       pointer-events: auto;
+      opacity: .72;
     }
 
     .centerActions button {
       border: none;
       border-radius: 999px;
-      padding: 7px 10px;
-      font-size: 10px;
+      padding: 6px 8px;
+      font-size: 9px;
       font-weight: 900;
-      background: rgba(255,255,255,.82);
+      background: rgba(255,255,255,.72);
       color: #061014;
-      box-shadow: 0 6px 16px rgba(0,0,0,.24);
+      box-shadow: 0 6px 16px rgba(0,0,0,.22);
     }
 
     .centerActions .clear {
@@ -192,18 +212,18 @@
     #toast {
       position: absolute;
       left: 50%;
-      top: 64px;
+      top: 60px;
       transform: translateX(-50%);
-      background: rgba(0,0,0,.58);
+      background: var(--glass-strong);
       border: 1px solid var(--line);
       border-radius: 999px;
-      padding: 7px 12px;
-      font-size: 11px;
+      padding: 6px 11px;
+      font-size: 10px;
       font-weight: 900;
       opacity: 0;
       transition: opacity .2s ease;
       backdrop-filter: blur(8px);
-      max-width: 76vw;
+      max-width: 68vw;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -211,6 +231,53 @@
 
     #toast.show {
       opacity: 1;
+    }
+
+    .recordBar {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      width: 160px;
+      height: 5px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.12);
+      overflow: hidden;
+      display: none;
+    }
+
+    .recordFill {
+      height: 100%;
+      width: 0%;
+      background: var(--pink);
+    }
+
+    .recording .recordBar {
+      display: block;
+    }
+
+    @media (max-height: 430px) {
+      .zoneHint {
+        top: 31px;
+      }
+
+      .floatingLabel {
+        bottom: 10px;
+        max-width: 26vw;
+      }
+
+      .wordRow {
+        bottom: 44px;
+        width: 26vw;
+      }
+
+      .centerActions {
+        bottom: 10px;
+      }
+
+      .centerActions button {
+        padding: 5px 7px;
+        font-size: 8px;
+      }
     }
   </style>
 </head>
@@ -222,13 +289,16 @@
   <div id="hud">
     <div class="lensLine"></div>
 
-    <div id="connection" class="disconnected">Backend checking...</div>
+    <div class="topStatus">
+      <div id="connection" class="pill disconnected">Backend checking...</div>
+      <div id="fpsBadge" class="pill">FPS —</div>
+    </div>
 
-    <div id="selfHint" class="sideHint">Left = You</div>
-    <div id="otherHint" class="sideHint">Right = Other</div>
+    <div id="selfHint" class="zoneHint">Left = You</div>
+    <div id="otherHint" class="zoneHint">Right = Other</div>
 
-    <div id="selfWords" class="tinyWords"></div>
-    <div id="otherWords" class="tinyWords"></div>
+    <div id="selfWords" class="wordRow"></div>
+    <div id="otherWords" class="wordRow"></div>
 
     <div id="selfFloating" class="floatingLabel">You: — 0%</div>
     <div id="otherFloating" class="floatingLabel">Other: — 0%</div>
@@ -237,6 +307,10 @@
       <button onclick="finishSentence('self')">Finish You</button>
       <button onclick="finishSentence('other')">Finish Other</button>
       <button class="clear" onclick="clearAll()">Clear</button>
+    </div>
+
+    <div class="recordBar">
+      <div id="recordFill" class="recordFill"></div>
     </div>
 
     <div id="toast"></div>
@@ -258,18 +332,22 @@
     const SAVE_URL = API_URL + "/save_sequence";
 
     const SEQ_LENGTH = 30;
-    const PREDICT_EVERY_MS = 230;
+    const PREDICT_EVERY_MS = 240;
     const CONFIRM_THRESHOLD = 0.72;
     const MIN_STABLE_FRAMES = 3;
-    const WORD_COOLDOWN_MS = 1200;
-    const PAUSE_TO_FINISH_MS = 2200;
+    const WORD_COOLDOWN_MS = 1300;
+    const PAUSE_TO_FINISH_MS = 2300;
+    const NO_HAND_RESET_MS = 900;
 
-    const NEUTRAL_LABELS = new Set(["neutral", "none", "unknown", "idle"]);
+    const NEUTRAL_LABELS = new Set(["neutral", "none", "unknown", "idle", "no_hands"]);
 
     let recording = false;
     let selectedLabel = null;
     let selectedRole = "self";
     let recordSequence = [];
+
+    let lastFrameTime = performance.now();
+    let fps = 0;
 
     let roles = {
       self: makeRole("self"),
@@ -295,12 +373,17 @@
     }
 
     function resizeCanvas() {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.floor(window.innerWidth * dpr);
+      canvas.height = Math.floor(window.innerHeight * dpr);
+      canvas.style.width = window.innerWidth + "px";
+      canvas.style.height = window.innerHeight + "px";
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("orientationchange", () => setTimeout(resizeCanvas, 300));
 
     function toast(msg) {
       const el = document.getElementById("toast");
@@ -314,10 +397,7 @@
     }
 
     function getBox(landmarks) {
-      let minX = 1;
-      let maxX = 0;
-      let minY = 1;
-      let maxY = 0;
+      let minX = 1, maxX = 0, minY = 1, maxY = 0;
 
       for (const p of landmarks) {
         minX = Math.min(minX, p.x);
@@ -327,10 +407,7 @@
       }
 
       return {
-        minX,
-        maxX,
-        minY,
-        maxY,
+        minX, maxX, minY, maxY,
         cx: (minX + maxX) / 2,
         cy: (minY + maxY) / 2,
         area: (maxX - minX) * (maxY - minY)
@@ -339,11 +416,7 @@
 
     function flatten(landmarks) {
       const arr = [];
-
-      for (const p of landmarks) {
-        arr.push(p.x, p.y, p.z);
-      }
-
+      for (const p of landmarks) arr.push(p.x, p.y, p.z);
       return arr;
     }
 
@@ -353,29 +426,18 @@
       hands.sort((a, b) => getBox(a).cx - getBox(b).cx);
 
       for (let i = 0; i < 2; i++) {
-        if (hands[i]) {
-          frame = frame.concat(flatten(hands[i]));
-        } else {
-          frame = frame.concat(new Array(63).fill(0));
-        }
+        if (hands[i]) frame = frame.concat(flatten(hands[i]));
+        else frame = frame.concat(new Array(63).fill(0));
       }
 
       return frame;
     }
 
     function assignRoles(handsData) {
-      const grouped = {
-        self: [],
-        other: []
-      };
-
-      if (!handsData.length) {
-        return grouped;
-      }
+      const grouped = { self: [], other: [] };
 
       for (const h of handsData) {
-        const leftSide = h.box.cx < 0.5;
-        const role = leftSide ? "self" : "other";
+        const role = h.box.cx < 0.5 ? "self" : "other";
         grouped[role].push(h.landmarks);
       }
 
@@ -393,10 +455,10 @@
         const data = await res.json();
 
         el.innerText = `Connected · ${data.labels.length} words`;
-        el.className = "connected";
+        el.className = "pill connected";
       } catch {
-        el.innerText = "Backend disconnected";
-        el.className = "disconnected";
+        el.innerText = "Backend offline";
+        el.className = "pill disconnected";
       }
     }
 
@@ -410,6 +472,7 @@
           selectedRole = data.role || "self";
           recordSequence = [];
           recording = true;
+          document.body.classList.add("recording");
           toast(`Recording ${nice(selectedLabel)} · ${selectedRole}`);
         }
       } catch {}
@@ -419,9 +482,7 @@
       try {
         const res = await fetch(SAVE_URL, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             label: selectedLabel,
             role: selectedRole,
@@ -430,31 +491,23 @@
         });
 
         const data = await res.json();
-
-        if (data.error) {
-          toast("Save error");
-        } else {
-          toast(`Saved ${nice(selectedLabel)}`);
-        }
+        toast(data.error ? "Save error" : `Saved ${nice(selectedLabel)}`);
       } catch {
         toast("Backend save failed");
       }
 
       recordSequence = [];
+      document.getElementById("recordFill").style.width = "0%";
+      document.body.classList.remove("recording");
     }
 
     async function sendPrediction(roleName) {
       const state = roles[roleName];
 
-      if (state.predicting || state.sequence.length < SEQ_LENGTH) {
-        return;
-      }
+      if (state.predicting || state.sequence.length < SEQ_LENGTH) return;
 
       const now = performance.now();
-
-      if (now - state.lastPredictAt < PREDICT_EVERY_MS) {
-        return;
-      }
+      if (now - state.lastPredictAt < PREDICT_EVERY_MS) return;
 
       state.predicting = true;
       state.lastPredictAt = now;
@@ -462,12 +515,8 @@
       try {
         const res = await fetch(PREDICT_URL, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            sequence: [...state.sequence]
-          })
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sequence: [...state.sequence] })
         });
 
         const data = await res.json();
@@ -476,8 +525,8 @@
           handlePrediction(state, data.label, data.confidence);
         }
       } catch {
-        document.getElementById("connection").innerText = "Backend disconnected";
-        document.getElementById("connection").className = "disconnected";
+        document.getElementById("connection").innerText = "Backend offline";
+        document.getElementById("connection").className = "pill disconnected";
       } finally {
         state.predicting = false;
       }
@@ -506,7 +555,7 @@
 
       const notSameTooSoon =
         label !== state.lastWord ||
-        now - state.lastConfirmedAt > WORD_COOLDOWN_MS * 2;
+        now - state.lastConfirmedAt > WORD_COOLDOWN_MS * 2.2;
 
       if (canConfirm && cooldownPassed && notSameTooSoon) {
         state.words.push(label);
@@ -523,27 +572,19 @@
     }
 
     function sentenceFromWords(words) {
-      if (!words.length) {
-        return "";
-      }
+      if (!words.length) return "";
 
       let text = words.map(nice).join(" ");
       text = text.replace(/\bi\b/g, "I");
       text = text.charAt(0).toUpperCase() + text.slice(1);
 
-      if (!/[.!?]$/.test(text)) {
-        text += ".";
-      }
-
+      if (!/[.!?]$/.test(text)) text += ".";
       return text;
     }
 
     function finishSentence(roleName, showToast = true) {
       const state = roles[roleName];
-
-      if (!state.words.length) {
-        return;
-      }
+      if (!state.words.length) return;
 
       state.finalSentence = sentenceFromWords(state.words);
       state.words = [];
@@ -571,15 +612,19 @@
     function updateUI(roleName) {
       const s = roles[roleName];
       const pct = Math.round((s.confidence || 0) * 100);
+      const active = performance.now() - s.lastSeenHandsAt < NO_HAND_RESET_MS;
+
+      const displayLabel = active ? s.liveLabel : "—";
+      const displayPct = active ? pct : 0;
 
       const label =
-        `${roleName === "self" ? "You" : "Other"}: ${s.liveLabel || "—"} ${pct}%`;
+        `${roleName === "self" ? "You" : "Other"}: ${displayLabel} ${displayPct}%`;
 
       document.getElementById(
         roleName === "self" ? "selfFloating" : "otherFloating"
       ).innerText = label;
 
-      const chips = s.words.slice(-3)
+      const chips = s.words.slice(-2)
         .map(w => `<span class="chip">${nice(w)}</span>`)
         .join("");
 
@@ -591,7 +636,7 @@
     setInterval(() => {
       updateUI("self");
       updateUI("other");
-    }, 500);
+    }, 450);
 
     checkBackend();
 
@@ -602,13 +647,18 @@
     hands.setOptions({
       maxNumHands: 4,
       modelComplexity: 1,
-      minDetectionConfidence: 0.45,
-      minTrackingConfidence: 0.45
+      minDetectionConfidence: 0.48,
+      minTrackingConfidence: 0.48
     });
 
     hands.onResults(results => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+      const now = performance.now();
+      fps = Math.round(1000 / Math.max(1, now - lastFrameTime));
+      lastFrameTime = now;
+      document.getElementById("fpsBadge").innerText = `FPS ${fps}`;
+
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      ctx.drawImage(results.image, 0, 0, window.innerWidth, window.innerHeight);
 
       const handsData = (results.multiHandLandmarks || []).map(l => ({
         landmarks: l,
@@ -628,6 +678,8 @@
 
           if (recording && selectedRole === roleName) {
             recordSequence.push(frame);
+            document.getElementById("recordFill").style.width =
+              `${Math.min(100, (recordSequence.length / SEQ_LENGTH) * 100)}%`;
 
             if (recordSequence.length >= SEQ_LENGTH) {
               recording = false;
@@ -637,11 +689,7 @@
 
           if (!recording) {
             state.sequence.push(frame);
-
-            if (state.sequence.length > SEQ_LENGTH) {
-              state.sequence.shift();
-            }
-
+            if (state.sequence.length > SEQ_LENGTH) state.sequence.shift();
             sendPrediction(roleName);
           }
         } else {
@@ -655,7 +703,7 @@
         const color = isSelf ? "#62ff9f" : "#5bdcff";
 
         drawConnectors(ctx, h.landmarks, HAND_CONNECTIONS, {
-          color: color,
+          color,
           lineWidth: 3
         });
 
@@ -664,28 +712,15 @@
           radius: 2
         });
       }
-
-      if (recording) {
-        ctx.fillStyle = "rgba(255,142,219,.92)";
-        ctx.fillRect(16, 16, Math.min(180, (recordSequence.length / SEQ_LENGTH) * 180), 6);
-      }
     });
 
     async function startCamera() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: {
-            ideal: "environment"
-          },
-          width: {
-            ideal: 1920
-          },
-          height: {
-            ideal: 1080
-          },
-          aspectRatio: {
-            ideal: 16 / 9
-          }
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          aspectRatio: { ideal: 16 / 9 }
         },
         audio: false
       });
@@ -696,10 +731,7 @@
         video.play();
 
         async function loop() {
-          await hands.send({
-            image: video
-          });
-
+          await hands.send({ image: video });
           requestAnimationFrame(loop);
         }
 
