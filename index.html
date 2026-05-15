@@ -5,18 +5,41 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ASL Conversation Assistant</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; background: #111; color: white; }
-    .container { display: flex; flex-direction: column; height: 100vh; }
-    .video-container { flex: 1; position: relative; background: black; }
-    video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
-    .overlay { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 8px; }
-    .sign-box { margin: 8px 0; padding: 10px; border-radius: 8px; }
-    .self { background: #0066cc; }
+    body { margin:0; background:#000; overflow:hidden; font-family:Arial; }
+    .container { display:flex; flex-direction:column; height:100vh; }
+    .video-container { flex:1; position:relative; background:black; }
+    video {
+      width:100%;
+      height:100%;
+      object-fit: cover;
+      transform: rotate(180deg) scaleX(-1);   /* Fix upside down + mirror */
+    }
+    .overlay {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.7);
+      padding: 10px;
+      border-radius: 8px;
+      color: white;
+      font-size: 18px;
+    }
+    .sign-box { margin: 6px 0; padding: 8px; border-radius: 6px; }
+    .self  { background: #0066cc; }
     .other { background: #cc6600; }
-    .controls { padding: 15px; background: #222; text-align: center; }
-    button { padding: 12px 20px; margin: 5px; font-size: 16px; border: none; border-radius: 6px; cursor: pointer; }
-    .finish { background: #28a745; color: white; }
-    .clear { background: #dc3545; color: white; }
+    .controls {
+      padding: 12px;
+      background: #222;
+      text-align: center;
+    }
+    button {
+      padding: 12px 18px;
+      margin: 5px;
+      font-size: 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -31,43 +54,43 @@
     </div>
 
     <div class="controls">
-      <button class="finish" onclick="finishSentence('self')">Finish You</button>
-      <button class="finish" onclick="finishSentence('other')">Finish Other</button>
-      <button class="clear" onclick="clearAll()">Clear All</button>
+      <button onclick="finishSentence('self')">Finish You</button>
+      <button onclick="finishSentence('other')">Finish Other</button>
+      <button onclick="clearAll()">Clear All</button>
     </div>
   </div>
 
   <script>
-    let selfSequence = [];
-    let otherSequence = [];
     let video = document.getElementById('video');
-    let stream = null;
 
     async function startCamera() {
-        try {
-            // Try to force the BACK camera (environment = rear)
-            stream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    facingMode: { ideal: "environment" },   // Rear camera
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                }
-            });
-
-            video.srcObject = stream;
-            console.log("✅ Using rear camera (environment)");
-        } catch (err) {
-            console.warn("Rear camera failed, trying front...", err);
-            // Fallback to any camera
-            stream = await navigator.mediaDevices.getUserMedia({
-                video: { width: 1280, height: 720 }
-            });
-            video.srcObject = stream;
-        }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },  // Rear camera
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        });
+        video.srcObject = stream;
+        console.log("✅ Rear camera started");
+      } catch (e) {
+        console.error("Camera error", e);
+        alert("Could not access camera");
+      }
     }
 
-    // Call this when page loads
+    function finishSentence(role) {
+      alert(`Final sentence committed for ${role}`);
+    }
+
+    function clearAll() {
+      document.getElementById('selfSign').innerHTML = 'You: <strong>—</strong>';
+      document.getElementById('otherSign').innerHTML = 'Other: <strong>—</strong>';
+    }
+
+    // Start camera when page loads
     window.onload = startCamera;
-</script>
+  </script>
 </body>
 </html>
