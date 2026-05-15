@@ -1,101 +1,715 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ASL Conversation Assistant</title>
+  <title>ASL Cardboard Assistant</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
   <style>
-    body { margin:0; background:#000; overflow:hidden; font-family:Arial; }
-    .container { display:flex; flex-direction:column; height:100vh; }
-    .video-container { flex:1; position:relative; background:black; }
-    video {
-      width:100%;
-      height:100%;
-      object-fit: cover;
-      transform: rotate(0deg);   /* Default - we'll change this */
+    :root {
+      --self: #62ff9f;
+      --other: #5bdcff;
+      --pink: #ff8edb;
+      --glass: rgba(0, 0, 0, 0.28);
+      --line: rgba(255, 255, 255, 0.14);
     }
-    .overlay {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: rgba(0,0,0,0.7);
-      padding: 10px;
-      border-radius: 8px;
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: black;
+      font-family: Arial, Helvetica, sans-serif;
       color: white;
-      font-size: 18px;
     }
-    .controls {
-      padding: 12px;
-      background: #222;
-      text-align: center;
+
+    video, canvas {
+      position: absolute;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
     }
-    button {
-      padding: 12px 18px;
-      margin: 5px;
-      font-size: 16px;
+
+    video {
+      opacity: 0;
+    }
+
+    #hud {
+      position: absolute;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .lensLine {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 1px;
+      background: rgba(255,255,255,.16);
+    }
+
+    #connection {
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--glass);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 11px;
+      font-weight: 900;
+      backdrop-filter: blur(7px);
+      white-space: nowrap;
+      max-width: 70vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .connected {
+      color: var(--self);
+    }
+
+    .disconnected {
+      color: #ff6f8c;
+    }
+
+    .sideHint {
+      position: absolute;
+      top: 38px;
+      background: rgba(0,0,0,.22);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      backdrop-filter: blur(6px);
+    }
+
+    #selfHint {
+      left: 8vw;
+      color: var(--self);
+    }
+
+    #otherHint {
+      right: 8vw;
+      color: var(--other);
+    }
+
+    .floatingLabel {
+      position: absolute;
+      bottom: 16px;
+      background: var(--glass);
+      border: 1px solid var(--line);
+      backdrop-filter: blur(7px);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: clamp(12px, 2vw, 18px);
+      font-weight: 900;
+      max-width: 30vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      box-shadow: 0 8px 22px rgba(0,0,0,.28);
+    }
+
+    #selfFloating {
+      left: 8vw;
+      border-color: rgba(98,255,159,.55);
+    }
+
+    #otherFloating {
+      right: 8vw;
+      border-color: rgba(91,220,255,.55);
+    }
+
+    .tinyWords {
+      position: absolute;
+      bottom: 55px;
+      width: 30vw;
+      display: flex;
+      gap: 5px;
+      overflow: hidden;
+    }
+
+    #selfWords {
+      left: 8vw;
+    }
+
+    #otherWords {
+      right: 8vw;
+      justify-content: flex-end;
+    }
+
+    .chip {
+      background: rgba(255,255,255,.13);
+      border: 1px solid rgba(255,255,255,.10);
+      border-radius: 999px;
+      padding: 4px 7px;
+      font-size: 10px;
+      font-weight: 900;
+      white-space: nowrap;
+      backdrop-filter: blur(5px);
+    }
+
+    .centerActions {
+      position: absolute;
+      left: 50%;
+      bottom: 14px;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 6px;
+      pointer-events: auto;
+    }
+
+    .centerActions button {
       border: none;
-      border-radius: 6px;
-      cursor: pointer;
+      border-radius: 999px;
+      padding: 7px 10px;
+      font-size: 10px;
+      font-weight: 900;
+      background: rgba(255,255,255,.82);
+      color: #061014;
+      box-shadow: 0 6px 16px rgba(0,0,0,.24);
+    }
+
+    .centerActions .clear {
+      background: var(--pink);
+      color: white;
+    }
+
+    #toast {
+      position: absolute;
+      left: 50%;
+      top: 64px;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,.58);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 11px;
+      font-weight: 900;
+      opacity: 0;
+      transition: opacity .2s ease;
+      backdrop-filter: blur(8px);
+      max-width: 76vw;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #toast.show {
+      opacity: 1;
     }
   </style>
 </head>
-<body>
-  <div class="container">
-    <div class="video-container">
-      <video id="video" autoplay playsinline></video>
-      
-      <div class="overlay">
-        <div class="sign-box self" id="selfSign">You: <strong>—</strong></div>
-        <div class="sign-box other" id="otherSign">Other: <strong>—</strong></div>
-      </div>
-    </div>
 
-    <div class="controls">
-      <button onclick="cycleRotation()">Rotate View</button>
+<body>
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+
+  <div id="hud">
+    <div class="lensLine"></div>
+
+    <div id="connection" class="disconnected">Backend checking...</div>
+
+    <div id="selfHint" class="sideHint">Left = You</div>
+    <div id="otherHint" class="sideHint">Right = Other</div>
+
+    <div id="selfWords" class="tinyWords"></div>
+    <div id="otherWords" class="tinyWords"></div>
+
+    <div id="selfFloating" class="floatingLabel">You: — 0%</div>
+    <div id="otherFloating" class="floatingLabel">Other: — 0%</div>
+
+    <div class="centerActions">
       <button onclick="finishSentence('self')">Finish You</button>
       <button onclick="finishSentence('other')">Finish Other</button>
-      <button onclick="clearAll()">Clear</button>
+      <button class="clear" onclick="clearAll()">Clear</button>
     </div>
+
+    <div id="toast"></div>
   </div>
 
-  <script>
-    let video = document.getElementById('video');
-    let currentRotation = 0;
-    const rotations = [0, 90, 180, 270];
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
-    async function startCamera() {
+  <script>
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+
+    const API_URL = "http://192.168.0.78:5000";
+
+    const HEALTH_URL = API_URL + "/health";
+    const PREDICT_URL = API_URL + "/predict";
+    const COMMAND_URL = API_URL + "/get_command";
+    const SAVE_URL = API_URL + "/save_sequence";
+
+    const SEQ_LENGTH = 30;
+    const PREDICT_EVERY_MS = 230;
+    const CONFIRM_THRESHOLD = 0.72;
+    const MIN_STABLE_FRAMES = 3;
+    const WORD_COOLDOWN_MS = 1200;
+    const PAUSE_TO_FINISH_MS = 2200;
+
+    const NEUTRAL_LABELS = new Set(["neutral", "none", "unknown", "idle"]);
+
+    let recording = false;
+    let selectedLabel = null;
+    let selectedRole = "self";
+    let recordSequence = [];
+
+    let roles = {
+      self: makeRole("self"),
+      other: makeRole("other")
+    };
+
+    function makeRole(role) {
+      return {
+        role,
+        sequence: [],
+        predicting: false,
+        lastPredictAt: 0,
+        liveLabel: "—",
+        confidence: 0,
+        stableLabel: null,
+        stableCount: 0,
+        words: [],
+        lastConfirmedAt: 0,
+        lastWord: null,
+        lastSeenHandsAt: 0,
+        finalSentence: ""
+      };
+    }
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+
+    function toast(msg) {
+      const el = document.getElementById("toast");
+      el.innerText = msg;
+      el.classList.add("show");
+      setTimeout(() => el.classList.remove("show"), 1300);
+    }
+
+    function nice(label) {
+      return (label || "—").replaceAll("_", " ");
+    }
+
+    function getBox(landmarks) {
+      let minX = 1;
+      let maxX = 0;
+      let minY = 1;
+      let maxY = 0;
+
+      for (const p of landmarks) {
+        minX = Math.min(minX, p.x);
+        maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y);
+        maxY = Math.max(maxY, p.y);
+      }
+
+      return {
+        minX,
+        maxX,
+        minY,
+        maxY,
+        cx: (minX + maxX) / 2,
+        cy: (minY + maxY) / 2,
+        area: (maxX - minX) * (maxY - minY)
+      };
+    }
+
+    function flatten(landmarks) {
+      const arr = [];
+
+      for (const p of landmarks) {
+        arr.push(p.x, p.y, p.z);
+      }
+
+      return arr;
+    }
+
+    function makeTwoHandFrame(hands) {
+      let frame = [];
+
+      hands.sort((a, b) => getBox(a).cx - getBox(b).cx);
+
+      for (let i = 0; i < 2; i++) {
+        if (hands[i]) {
+          frame = frame.concat(flatten(hands[i]));
+        } else {
+          frame = frame.concat(new Array(63).fill(0));
+        }
+      }
+
+      return frame;
+    }
+
+    function assignRoles(handsData) {
+      const grouped = {
+        self: [],
+        other: []
+      };
+
+      if (!handsData.length) {
+        return grouped;
+      }
+
+      for (const h of handsData) {
+        const leftSide = h.box.cx < 0.5;
+        const role = leftSide ? "self" : "other";
+        grouped[role].push(h.landmarks);
+      }
+
+      grouped.self = grouped.self.slice(0, 2);
+      grouped.other = grouped.other.slice(0, 2);
+
+      return grouped;
+    }
+
+    async function checkBackend() {
+      const el = document.getElementById("connection");
+
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          }
-        });
-        video.srcObject = stream;
-        console.log("✅ Rear camera started");
-      } catch (e) {
-        console.error("Camera error", e);
+        const res = await fetch(HEALTH_URL);
+        const data = await res.json();
+
+        el.innerText = `Connected · ${data.labels.length} words`;
+        el.className = "connected";
+      } catch {
+        el.innerText = "Backend disconnected";
+        el.className = "disconnected";
       }
     }
 
-    function cycleRotation() {
-      currentRotation = (currentRotation + 1) % 4;
-      const deg = rotations[currentRotation];
-      video.style.transform = `rotate(${deg}deg)`;
-      console.log(`Rotated to ${deg} degrees`);
+    async function checkCommand() {
+      try {
+        const res = await fetch(COMMAND_URL);
+        const data = await res.json();
+
+        if (data.record && data.label && !recording) {
+          selectedLabel = data.label;
+          selectedRole = data.role || "self";
+          recordSequence = [];
+          recording = true;
+          toast(`Recording ${nice(selectedLabel)} · ${selectedRole}`);
+        }
+      } catch {}
     }
 
-    function finishSentence(role) {
-      alert(`Final sentence committed for ${role}`);
+    async function saveSequence() {
+      try {
+        const res = await fetch(SAVE_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            label: selectedLabel,
+            role: selectedRole,
+            sequence: recordSequence
+          })
+        });
+
+        const data = await res.json();
+
+        if (data.error) {
+          toast("Save error");
+        } else {
+          toast(`Saved ${nice(selectedLabel)}`);
+        }
+      } catch {
+        toast("Backend save failed");
+      }
+
+      recordSequence = [];
+    }
+
+    async function sendPrediction(roleName) {
+      const state = roles[roleName];
+
+      if (state.predicting || state.sequence.length < SEQ_LENGTH) {
+        return;
+      }
+
+      const now = performance.now();
+
+      if (now - state.lastPredictAt < PREDICT_EVERY_MS) {
+        return;
+      }
+
+      state.predicting = true;
+      state.lastPredictAt = now;
+
+      try {
+        const res = await fetch(PREDICT_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            sequence: [...state.sequence]
+          })
+        });
+
+        const data = await res.json();
+
+        if (!data.error) {
+          handlePrediction(state, data.label, data.confidence);
+        }
+      } catch {
+        document.getElementById("connection").innerText = "Backend disconnected";
+        document.getElementById("connection").className = "disconnected";
+      } finally {
+        state.predicting = false;
+      }
+    }
+
+    function handlePrediction(state, label, confidence) {
+      state.liveLabel = nice(label);
+      state.confidence = confidence || 0;
+
+      if (label === state.stableLabel) {
+        state.stableCount++;
+      } else {
+        state.stableLabel = label;
+        state.stableCount = 1;
+      }
+
+      const now = performance.now();
+      const isNeutral = NEUTRAL_LABELS.has(label);
+
+      const canConfirm =
+        confidence >= CONFIRM_THRESHOLD &&
+        state.stableCount >= MIN_STABLE_FRAMES &&
+        !isNeutral;
+
+      const cooldownPassed = now - state.lastConfirmedAt > WORD_COOLDOWN_MS;
+
+      const notSameTooSoon =
+        label !== state.lastWord ||
+        now - state.lastConfirmedAt > WORD_COOLDOWN_MS * 2;
+
+      if (canConfirm && cooldownPassed && notSameTooSoon) {
+        state.words.push(label);
+        state.lastWord = label;
+        state.lastConfirmedAt = now;
+        toast(`${state.role === "self" ? "You" : "Other"}: ${nice(label)}`);
+      }
+
+      if (state.words.length > 0 && now - state.lastConfirmedAt > PAUSE_TO_FINISH_MS) {
+        finishSentence(state.role, false);
+      }
+
+      updateUI(state.role);
+    }
+
+    function sentenceFromWords(words) {
+      if (!words.length) {
+        return "";
+      }
+
+      let text = words.map(nice).join(" ");
+      text = text.replace(/\bi\b/g, "I");
+      text = text.charAt(0).toUpperCase() + text.slice(1);
+
+      if (!/[.!?]$/.test(text)) {
+        text += ".";
+      }
+
+      return text;
+    }
+
+    function finishSentence(roleName, showToast = true) {
+      const state = roles[roleName];
+
+      if (!state.words.length) {
+        return;
+      }
+
+      state.finalSentence = sentenceFromWords(state.words);
+      state.words = [];
+      state.lastWord = null;
+      state.lastConfirmedAt = 0;
+
+      if (showToast) {
+        toast(`${roleName === "self" ? "You" : "Other"}: ${state.finalSentence}`);
+      }
+
+      updateUI(roleName);
     }
 
     function clearAll() {
-      document.getElementById('selfSign').innerHTML = 'You: <strong>—</strong>';
-      document.getElementById('otherSign').innerHTML = 'Other: <strong>—</strong>';
+      roles = {
+        self: makeRole("self"),
+        other: makeRole("other")
+      };
+
+      updateUI("self");
+      updateUI("other");
+      toast("Cleared");
     }
 
-    window.onload = startCamera;
+    function updateUI(roleName) {
+      const s = roles[roleName];
+      const pct = Math.round((s.confidence || 0) * 100);
+
+      const label =
+        `${roleName === "self" ? "You" : "Other"}: ${s.liveLabel || "—"} ${pct}%`;
+
+      document.getElementById(
+        roleName === "self" ? "selfFloating" : "otherFloating"
+      ).innerText = label;
+
+      const chips = s.words.slice(-3)
+        .map(w => `<span class="chip">${nice(w)}</span>`)
+        .join("");
+
+      document.getElementById(roleName + "Words").innerHTML = chips;
+    }
+
+    setInterval(checkBackend, 2500);
+    setInterval(checkCommand, 500);
+    setInterval(() => {
+      updateUI("self");
+      updateUI("other");
+    }, 500);
+
+    checkBackend();
+
+    const hands = new Hands({
+      locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 4,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.45,
+      minTrackingConfidence: 0.45
+    });
+
+    hands.onResults(results => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
+      const handsData = (results.multiHandLandmarks || []).map(l => ({
+        landmarks: l,
+        box: getBox(l)
+      }));
+
+      const grouped = assignRoles(handsData);
+
+      for (const roleName of ["self", "other"]) {
+        const handsForRole = grouped[roleName];
+
+        if (handsForRole.length) {
+          const state = roles[roleName];
+          state.lastSeenHandsAt = performance.now();
+
+          const frame = makeTwoHandFrame(handsForRole);
+
+          if (recording && selectedRole === roleName) {
+            recordSequence.push(frame);
+
+            if (recordSequence.length >= SEQ_LENGTH) {
+              recording = false;
+              saveSequence();
+            }
+          }
+
+          if (!recording) {
+            state.sequence.push(frame);
+
+            if (state.sequence.length > SEQ_LENGTH) {
+              state.sequence.shift();
+            }
+
+            sendPrediction(roleName);
+          }
+        } else {
+          roles[roleName].sequence = [];
+          roles[roleName].stableCount = 0;
+        }
+      }
+
+      for (const h of handsData) {
+        const isSelf = grouped.self.includes(h.landmarks);
+        const color = isSelf ? "#62ff9f" : "#5bdcff";
+
+        drawConnectors(ctx, h.landmarks, HAND_CONNECTIONS, {
+          color: color,
+          lineWidth: 3
+        });
+
+        drawLandmarks(ctx, h.landmarks, {
+          color: "#ffffff",
+          radius: 2
+        });
+      }
+
+      if (recording) {
+        ctx.fillStyle = "rgba(255,142,219,.92)";
+        ctx.fillRect(16, 16, Math.min(180, (recordSequence.length / SEQ_LENGTH) * 180), 6);
+      }
+    });
+
+    async function startCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: {
+            ideal: "environment"
+          },
+          width: {
+            ideal: 1920
+          },
+          height: {
+            ideal: 1080
+          },
+          aspectRatio: {
+            ideal: 16 / 9
+          }
+        },
+        audio: false
+      });
+
+      video.srcObject = stream;
+
+      video.onloadedmetadata = () => {
+        video.play();
+
+        async function loop() {
+          await hands.send({
+            image: video
+          });
+
+          requestAnimationFrame(loop);
+        }
+
+        loop();
+      };
+    }
+
+    startCamera().catch(err => {
+      toast("Camera error: " + err.message);
+    });
   </script>
 </body>
 </html>
