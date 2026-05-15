@@ -40,34 +40,34 @@
   <script>
     let selfSequence = [];
     let otherSequence = [];
-    const video = document.getElementById('video');
+    let video = document.getElementById('video');
     let stream = null;
 
     async function startCamera() {
-      stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      video.srcObject = stream;
+        try {
+            // Try to force the BACK camera (environment = rear)
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: { ideal: "environment" },   // Rear camera
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                }
+            });
+
+            video.srcObject = stream;
+            console.log("✅ Using rear camera (environment)");
+        } catch (err) {
+            console.warn("Rear camera failed, trying front...", err);
+            // Fallback to any camera
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 1280, height: 720 }
+            });
+            video.srcObject = stream;
+        }
     }
 
-    // This will be called from MediaPipe (you need to add MediaPipe code)
-    function onResults(results) {
-      // TODO: Add your MediaPipe hand landmark code here
-      // For now, this is placeholder
-      console.log("Landmarks received");
-    }
-
-    function finishSentence(role) {
-      alert(`Final sentence for ${role} committed!`);
-      // You can extend this to build full sentences
-    }
-
-    function clearAll() {
-      selfSequence = [];
-      otherSequence = [];
-      document.getElementById('selfSign').innerHTML = 'You: <strong>—</strong>';
-      document.getElementById('otherSign').innerHTML = 'Other: <strong>—</strong>';
-    }
-
-    startCamera();
-  </script>
+    // Call this when page loads
+    window.onload = startCamera;
+</script>
 </body>
 </html>
