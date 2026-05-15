@@ -1,43 +1,101 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>ASL Dual User Recognition</title>
+  <title>ASL Conversation Assistant</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <style>
-    body {
-      margin: 0;
-      overflow: hidden;
-      background: black;
-      font-family: Arial;
+    :root {
+      --self:#54f58f;
+      --other:#42d7ff;
+      --warn:#ffcf5a;
+      --danger:#ff5e7a;
+      --panel:rgba(4, 12, 16, .78);
+      --line:rgba(255,255,255,.14);
+      --text:#f6fbfc;
+      --muted:rgba(246,251,252,.70);
     }
 
-    video, canvas {
-      position: absolute;
-      width: 100vw;
-      height: 100vh;
-      object-fit: cover;
-    }
+    * { box-sizing: border-box; }
+    body { margin:0; overflow:hidden; background:#020506; font-family:Arial, Helvetica, sans-serif; color:var(--text); }
+    video, canvas { position:absolute; inset:0; width:100vw; height:100vh; object-fit:cover; }
+    video { opacity:0; }
 
-    #label {
-      position: absolute;
-      top: 20px;
-      left: 20px;
-      color: lime;
-      background: rgba(0,0,0,0.75);
-      padding: 20px;
-      font-size: 30px;
-      font-weight: bold;
-      border-radius: 12px;
-      z-index: 10;
-      white-space: pre-line;
-      line-height: 1.35;
+    #hud { position:absolute; inset:0; z-index:10; pointer-events:none; padding:16px; display:grid; grid-template-rows:auto 1fr auto; gap:12px; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+    .badge { background:var(--panel); border:1px solid var(--line); border-radius:999px; padding:9px 13px; font-weight:700; backdrop-filter: blur(10px); }
+    .ok { color:var(--self); } .bad { color:var(--danger); } .rec { color:var(--warn); }
+
+    .cards { align-self:end; display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:22px; padding:16px; backdrop-filter:blur(12px); box-shadow:0 16px 40px rgba(0,0,0,.32); min-height:190px; }
+    .card.self { border-color:rgba(84,245,143,.45); }
+    .card.other { border-color:rgba(66,215,255,.45); }
+    .title { display:flex; align-items:center; justify-content:space-between; font-size:16px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; }
+    .dot { width:12px; height:12px; border-radius:50%; display:inline-block; margin-right:8px; }
+    .self .dot { background:var(--self); } .other .dot { background:var(--other); }
+    .live { font-size:44px; font-weight:900; margin:10px 0 4px; min-height:52px; text-transform:capitalize; }
+    .meta { display:flex; gap:8px; align-items:center; color:var(--muted); font-size:14px; }
+    .bar { height:8px; border-radius:999px; background:rgba(255,255,255,.13); overflow:hidden; margin:10px 0; }
+    .fill { height:100%; width:0%; transition:width .2s ease; background:currentColor; }
+    .self .fill { color:var(--self); } .other .fill { color:var(--other); }
+    .chips { min-height:34px; display:flex; flex-wrap:wrap; gap:7px; margin-top:8px; }
+    .chip { background:rgba(255,255,255,.11); border:1px solid rgba(255,255,255,.12); border-radius:999px; padding:6px 10px; font-weight:700; }
+    .sentence { margin-top:10px; padding:10px 12px; border-radius:14px; background:rgba(255,255,255,.08); min-height:42px; font-size:18px; line-height:1.25; }
+
+    .controls { pointer-events:auto; background:var(--panel); border:1px solid var(--line); border-radius:22px; padding:10px; display:flex; gap:8px; flex-wrap:wrap; backdrop-filter:blur(12px); }
+    button { border:0; border-radius:14px; padding:12px 14px; font-weight:800; color:#041113; background:#eefcff; cursor:pointer; }
+    button.selfBtn { background:var(--self); } button.otherBtn { background:var(--other); } button.clear { background:var(--danger); color:white; }
+    #toast { position:absolute; left:50%; top:74px; transform:translateX(-50%); background:rgba(0,0,0,.72); border:1px solid var(--line); padding:10px 14px; border-radius:999px; opacity:0; transition:.2s; z-index:20; }
+    #toast.show { opacity:1; }
+
+    @media (max-width: 760px) {
+      #hud { padding:10px; }
+      .cards { grid-template-columns:1fr; max-height:72vh; overflow:auto; }
+      .card { min-height:160px; padding:13px; }
+      .live { font-size:32px; min-height:38px; }
+      .controls { justify-content:center; }
+      button { padding:11px 12px; }
     }
   </style>
 </head>
-
 <body>
   <video id="video" autoplay playsinline muted></video>
   <canvas id="canvas"></canvas>
-  <div id="label">Waiting...</div>
+
+  <div id="hud">
+    <div class="topbar">
+      <div class="badge">ASL Conversation Assistant</div>
+      <div id="connection" class="badge bad">Backend: checking...</div>
+    </div>
+
+    <div class="cards">
+      <section class="card self" id="selfCard">
+        <div class="title"><span><span class="dot"></span>You</span><span id="selfState">waiting</span></div>
+        <div class="live" id="selfLive">—</div>
+        <div class="meta"><span id="selfConf">0%</span><span>stable:</span><span id="selfStable">0</span></div>
+        <div class="bar"><div class="fill" id="selfBar"></div></div>
+        <div class="chips" id="selfWords"></div>
+        <div class="sentence" id="selfSentence">Final sentence appears after a pause or Finish.</div>
+      </section>
+
+      <section class="card other" id="otherCard">
+        <div class="title"><span><span class="dot"></span>Other person</span><span id="otherState">waiting</span></div>
+        <div class="live" id="otherLive">—</div>
+        <div class="meta"><span id="otherConf">0%</span><span>stable:</span><span id="otherStable">0</span></div>
+        <div class="bar"><div class="fill" id="otherBar"></div></div>
+        <div class="chips" id="otherWords"></div>
+        <div class="sentence" id="otherSentence">Final sentence appears after a pause or Finish.</div>
+      </section>
+    </div>
+
+    <div class="controls">
+      <button class="selfBtn" onclick="finishSentence('self')">Finish You</button>
+      <button class="otherBtn" onclick="finishSentence('other')">Finish Other</button>
+      <button onclick="backspaceWord('self')">Undo You</button>
+      <button onclick="backspaceWord('other')">Undo Other</button>
+      <button class="clear" onclick="clearAll()">Clear All</button>
+    </div>
+  </div>
+  <div id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
@@ -46,298 +104,290 @@
     const video = document.getElementById("video");
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
-    const label = document.getElementById("label");
 
-    const API_URL = "http://192.168.0.78:5000";
+    const API_URL = location.hostname ? `http://${location.hostname}:5000` : "http://127.0.0.1:5000";
     const COMMAND_URL = API_URL + "/get_command";
     const SAVE_URL = API_URL + "/save_sequence";
-    const PREDICT_URL = API_URL + "/predict_dual";
+    const PREDICT_URL = API_URL + "/predict";
+    const HEALTH_URL = API_URL + "/health";
 
     const SEQ_LENGTH = 30;
+    const PREDICT_EVERY_MS = 220;
+    const CONFIRM_THRESHOLD = 0.72;
+    const MIN_STABLE_FRAMES = 3;
+    const WORD_COOLDOWN_MS = 1200;
+    const PAUSE_TO_FINISH_MS = 2200;
+    const NEUTRAL_LABELS = new Set(["neutral", "none", "unknown", "idle"]);
 
-    let recordSequence = [];
-
-    let selfPredictSequence = [];
-    let otherPredictSequence = [];
+    const roles = {
+      self: makeRoleState("self"),
+      other: makeRoleState("other")
+    };
 
     let recording = false;
     let selectedLabel = "none";
-    let statusText = "Waiting...";
+    let selectedRole = "self";
+    let recordSequence = [];
 
-    let selfPredictionText = "Waiting...";
-    let otherPredictionText = "Waiting...";
-
-    let predicting = false;
-
-    function resizeCanvas() {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+    function makeRoleState(role) {
+      return {
+        role,
+        sequence: [],
+        predicting: false,
+        lastPredictAt: 0,
+        liveLabel: "—",
+        confidence: 0,
+        stableLabel: null,
+        stableCount: 0,
+        words: [],
+        finalSentence: "Final sentence appears after a pause or Finish.",
+        lastConfirmedAt: 0,
+        lastWord: null,
+        lastSeenHandsAt: 0
+      };
     }
 
-    resizeCanvas();
-    window.addEventListener("resize", resizeCanvas);
+    function resizeCanvas() { canvas.width = innerWidth; canvas.height = innerHeight; }
+    resizeCanvas(); addEventListener("resize", resizeCanvas);
 
-    function getHandSize(landmarks) {
+    function toast(message) {
+      const el = document.getElementById("toast");
+      el.innerText = message;
+      el.classList.add("show");
+      setTimeout(() => el.classList.remove("show"), 1400);
+    }
+
+    function nice(label) { return (label || "—").replaceAll("_", " "); }
+
+    function getBox(landmarks) {
       let minX = 1, maxX = 0, minY = 1, maxY = 0;
-
-      for (const p of landmarks) {
-        minX = Math.min(minX, p.x);
-        maxX = Math.max(maxX, p.x);
-        minY = Math.min(minY, p.y);
-        maxY = Math.max(maxY, p.y);
-      }
-
-      return (maxX - minX) * (maxY - minY);
+      for (const p of landmarks) { minX = Math.min(minX,p.x); maxX = Math.max(maxX,p.x); minY = Math.min(minY,p.y); maxY = Math.max(maxY,p.y); }
+      return { minX, maxX, minY, maxY, cx:(minX+maxX)/2, cy:(minY+maxY)/2, area:(maxX-minX)*(maxY-minY) };
     }
 
     function flatten(landmarks) {
       const arr = [];
-
-      for (const p of landmarks) {
-        arr.push(p.x, p.y, p.z);
-      }
-
+      for (const p of landmarks) arr.push(p.x, p.y, p.z);
       return arr;
     }
 
-    function makeTwoHandFrame(handsArray) {
+    function makeTwoHandFrame(hands) {
       let frame = [];
+      hands.sort((a,b) => getBox(a).cx - getBox(b).cx);
+      for (let i=0; i<2; i++) frame = frame.concat(hands[i] ? flatten(hands[i]) : new Array(63).fill(0));
+      return frame;
+    }
 
-      for (let i = 0; i < 2; i++) {
-        if (handsArray[i]) {
-          frame = frame.concat(flatten(handsArray[i]));
-        } else {
-          frame = frame.concat(new Array(63).fill(0));
-        }
+    function assignRoles(handsData) {
+      const grouped = { self: [], other: [] };
+      if (!handsData.length) return grouped;
+
+      // Main rule for this project: lower-frame hands are the user, upper/central hands are the interlocutor.
+      const sortedByArea = [...handsData].sort((a,b) => b.box.area - a.box.area);
+      const biggestArea = sortedByArea[0].box.area || 0;
+
+      for (const h of handsData) {
+        const lowerFrame = h.box.cy >= 0.56;
+        const veryLargeCloseHand = h.box.area >= biggestArea * 0.72 && h.box.cy >= 0.45;
+        const role = (lowerFrame || veryLargeCloseHand) ? "self" : "other";
+        grouped[role].push(h.landmarks);
       }
 
-      return frame;
+      grouped.self = grouped.self.slice(0,2);
+      grouped.other = grouped.other.slice(0,2);
+      return grouped;
+    }
+
+    async function sendPrediction(roleName) {
+      const state = roles[roleName];
+      if (state.predicting || state.sequence.length < SEQ_LENGTH) return;
+      const now = performance.now();
+      if (now - state.lastPredictAt < PREDICT_EVERY_MS) return;
+
+      state.predicting = true;
+      state.lastPredictAt = now;
+      try {
+        const res = await fetch(PREDICT_URL, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ sequence:[...state.sequence] }) });
+        const data = await res.json();
+        if (!data.error) handlePrediction(state, data.label, data.confidence);
+      } catch (e) {
+        document.getElementById("connection").innerText = "Backend: disconnected";
+        document.getElementById("connection").className = "badge bad";
+      } finally {
+        state.predicting = false;
+      }
+    }
+
+    function handlePrediction(state, label, confidence) {
+      state.liveLabel = nice(label);
+      state.confidence = confidence || 0;
+
+      if (label === state.stableLabel) state.stableCount += 1;
+      else { state.stableLabel = label; state.stableCount = 1; }
+
+      const now = performance.now();
+      const isNeutral = NEUTRAL_LABELS.has(label);
+      const strongEnough = confidence >= CONFIRM_THRESHOLD && state.stableCount >= MIN_STABLE_FRAMES && !isNeutral;
+      const notRepeatedTooSoon = label !== state.lastWord || now - state.lastConfirmedAt > WORD_COOLDOWN_MS * 2;
+      const cooldownPassed = now - state.lastConfirmedAt > WORD_COOLDOWN_MS;
+
+      if (strongEnough && cooldownPassed && notRepeatedTooSoon) {
+        state.words.push(label);
+        state.lastWord = label;
+        state.lastConfirmedAt = now;
+        state.finalSentence = "Building sentence...";
+        toast(`${state.role === "self" ? "You" : "Other"}: added ${nice(label)}`);
+      }
+
+      if (state.words.length > 0 && now - state.lastConfirmedAt > PAUSE_TO_FINISH_MS) {
+        finishSentence(state.role, false);
+      }
+
+      updateRoleUI(state.role);
+    }
+
+    function toSentence(words) {
+      if (!words.length) return "No confirmed words yet.";
+      let text = words.map(nice).join(" ").replace(/\bi\b/g, "I");
+      text = text.charAt(0).toUpperCase() + text.slice(1);
+      return text + (/[.!?]$/.test(text) ? "" : ".");
+    }
+
+    function finishSentence(roleName, showToast = true) {
+      const state = roles[roleName];
+      if (!state.words.length) return;
+      state.finalSentence = toSentence(state.words);
+      state.words = [];
+      state.lastWord = null;
+      state.lastConfirmedAt = 0;
+      if (showToast) toast(`${roleName === "self" ? "Your" : "Other"} sentence finished`);
+      updateRoleUI(roleName);
+    }
+
+    function backspaceWord(roleName) {
+      const state = roles[roleName];
+      if (state.words.length) state.words.pop();
+      updateRoleUI(roleName);
+    }
+
+    function clearAll() {
+      for (const key of Object.keys(roles)) {
+        roles[key] = makeRoleState(key);
+        updateRoleUI(key);
+      }
+      toast("Conversation cleared");
+    }
+
+    function updateRoleUI(roleName) {
+      const s = roles[roleName];
+      const prefix = roleName;
+      document.getElementById(prefix + "Live").innerText = s.liveLabel || "—";
+      document.getElementById(prefix + "Conf").innerText = `${Math.round((s.confidence || 0)*100)}%`;
+      document.getElementById(prefix + "Stable").innerText = s.stableCount || 0;
+      document.getElementById(prefix + "Bar").style.width = `${Math.round((s.confidence || 0)*100)}%`;
+      document.getElementById(prefix + "Words").innerHTML = s.words.map(w => `<span class="chip">${nice(w)}</span>`).join("");
+      document.getElementById(prefix + "Sentence").innerText = s.finalSentence;
+      const active = performance.now() - s.lastSeenHandsAt < 900;
+      document.getElementById(prefix + "State").innerText = active ? "tracking" : "waiting";
     }
 
     async function saveSequence() {
       try {
-        const res = await fetch(SAVE_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            label: selectedLabel,
-            sequence: recordSequence
-          })
-        });
-
+        const res = await fetch(SAVE_URL, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ label:selectedLabel, role:selectedRole, sequence:recordSequence }) });
         const data = await res.json();
-
-        if (data.error) {
-          statusText = "Save error: " + data.error;
-        } else {
-          statusText = `Saved: ${selectedLabel}`;
-        }
-      } catch (e) {
-        statusText = "Save error";
-      }
-
+        toast(data.error ? `Save error: ${data.error}` : `Saved ${nice(selectedLabel)} (${selectedRole})`);
+      } catch (e) { toast("Save error: backend disconnected"); }
       recordSequence = [];
-    }
-
-    async function sendPrediction(selfSequence, otherSequence) {
-      try {
-        const res = await fetch(PREDICT_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            self_sequence: selfSequence,
-            other_sequence: otherSequence
-          })
-        });
-
-        const data = await res.json();
-
-        if (data.error) {
-          selfPredictionText = "Prediction error";
-          otherPredictionText = "Prediction error";
-        } else {
-          selfPredictionText =
-            `${data.self.label} (${(data.self.confidence * 100).toFixed(1)}%)`;
-
-          otherPredictionText =
-            `${data.other.label} (${(data.other.confidence * 100).toFixed(1)}%)`;
-        }
-      } catch (e) {
-        selfPredictionText = "Server error";
-        otherPredictionText = "Server error";
-      }
     }
 
     async function checkCommand() {
       try {
         const res = await fetch(COMMAND_URL);
         const data = await res.json();
-
         if (data.record && data.label && !recording) {
           selectedLabel = data.label;
+          selectedRole = data.role || "self";
           recordSequence = [];
           recording = true;
-          statusText = `Recording ${selectedLabel}...`;
+          toast(`Recording ${nice(selectedLabel)} (${selectedRole})`);
         }
+      } catch (e) {}
+    }
+
+    async function checkBackend() {
+      try {
+        const res = await fetch(HEALTH_URL);
+        const data = await res.json();
+        connection.innerText = `Backend: connected · ${data.labels.length} words`;
+        connection.className = "badge ok";
       } catch (e) {
-        console.log("Command error");
+        connection.innerText = "Backend: disconnected";
+        connection.className = "badge bad";
       }
     }
 
     setInterval(checkCommand, 500);
+    setInterval(checkBackend, 2500);
+    setInterval(() => { updateRoleUI("self"); updateRoleUI("other"); }, 400);
+    checkBackend();
 
-    const hands = new Hands({
-      locateFile: file =>
-        `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-    });
-
-    hands.setOptions({
-      maxNumHands: 4,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.3,
-      minTrackingConfidence: 0.3
-    });
+    const hands = new Hands({ locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+    hands.setOptions({ maxNumHands:4, modelComplexity:1, minDetectionConfidence:0.45, minTrackingConfidence:0.45 });
 
     hands.onResults(results => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
-      const scale = 0.75;
-      const w = canvas.width * scale;
-      const h = canvas.height * scale;
+      const handsData = (results.multiHandLandmarks || []).map(l => ({ landmarks:l, box:getBox(l) }));
+      const grouped = assignRoles(handsData);
 
-      ctx.drawImage(
-        results.image,
-        (canvas.width - w) / 2,
-        (canvas.height - h) / 2,
-        w,
-        h
-      );
+      for (const roleName of ["self", "other"]) {
+        const handsForRole = grouped[roleName];
+        if (handsForRole.length) {
+          const state = roles[roleName];
+          state.lastSeenHandsAt = performance.now();
+          const frame = makeTwoHandFrame(handsForRole);
 
-      let selfHands = [];
-      let otherHands = [];
-
-      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        let detectedHands = results.multiHandLandmarks.map(l => ({
-          landmarks: l,
-          size: getHandSize(l)
-        }));
-
-        detectedHands.sort((a, b) => b.size - a.size);
-
-        if (detectedHands.length > 0) {
-          selfHands.push(detectedHands[0].landmarks);
-        }
-
-        if (detectedHands.length > 1) {
-          otherHands.push(detectedHands[1].landmarks);
-        }
-
-        if (detectedHands.length > 2) {
-          otherHands.push(detectedHands[2].landmarks);
-        }
-
-        for (const hand of detectedHands) {
-          const isSelf = selfHands.includes(hand.landmarks);
-
-          drawConnectors(ctx, hand.landmarks, HAND_CONNECTIONS, {
-            color: isSelf ? "#00FF00" : "#00AAFF",
-            lineWidth: 3
-          });
-
-          drawLandmarks(ctx, hand.landmarks, {
-            color: isSelf ? "#FF0000" : "#FFFF00",
-            radius: 3
-          });
-        }
-
-        const selfFrame = makeTwoHandFrame(selfHands);
-        const otherFrame = makeTwoHandFrame(otherHands);
-
-        if (recording && selfHands.length > 0) {
-          recordSequence.push(selfFrame);
-
-          if (recordSequence.length >= SEQ_LENGTH) {
-            recording = false;
-            saveSequence();
-          }
-        }
-
-        if (!recording) {
-          selfPredictSequence.push(selfFrame);
-          otherPredictSequence.push(otherFrame);
-
-          if (selfPredictSequence.length > SEQ_LENGTH) {
-            selfPredictSequence.shift();
+          if (recording && selectedRole === roleName) {
+            recordSequence.push(frame);
+            if (recordSequence.length >= SEQ_LENGTH) { recording = false; saveSequence(); }
           }
 
-          if (otherPredictSequence.length > SEQ_LENGTH) {
-            otherPredictSequence.shift();
+          if (!recording) {
+            state.sequence.push(frame);
+            if (state.sequence.length > SEQ_LENGTH) state.sequence.shift();
+            sendPrediction(roleName);
           }
-
-          if (
-            selfPredictSequence.length === SEQ_LENGTH &&
-            otherPredictSequence.length === SEQ_LENGTH &&
-            !predicting
-          ) {
-            predicting = true;
-
-            sendPrediction(
-              [...selfPredictSequence],
-              [...otherPredictSequence]
-            ).finally(() => {
-              predicting = false;
-            });
-          }
-        }
-
-      } else {
-        selfPredictSequence = [];
-        otherPredictSequence = [];
-
-        selfPredictionText = "No hands";
-        otherPredictionText = "No hands";
-
-        if (recording) {
-          recording = false;
-          recordSequence = [];
-          statusText = "Reset: no hands";
+        } else {
+          roles[roleName].sequence = [];
+          roles[roleName].stableCount = 0;
         }
       }
 
-      label.innerText =
-        `${statusText}\n` +
-        `Record: ${recordSequence.length}/${SEQ_LENGTH}\n` +
-        `SELF: ${selfPredictSequence.length}/${SEQ_LENGTH} → ${selfPredictionText}\n` +
-        `OTHER: ${otherPredictSequence.length}/${SEQ_LENGTH} → ${otherPredictionText}`;
+      for (const h of handsData) {
+        const role = grouped.self.includes(h.landmarks) ? "self" : "other";
+        const color = role === "self" ? "#54f58f" : "#42d7ff";
+        drawConnectors(ctx, h.landmarks, HAND_CONNECTIONS, { color, lineWidth:3 });
+        drawLandmarks(ctx, h.landmarks, { color:"#ffffff", radius:2 });
+      }
+
+      if (recording) {
+        ctx.fillStyle = "rgba(255,207,90,.95)";
+        ctx.fillRect(16, 66, Math.min(260, (recordSequence.length / SEQ_LENGTH) * 260), 8);
+      }
     });
 
     async function startCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
-        },
-        audio: false
-      });
-
+      const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:"environment" }, width:{ ideal:1920 }, height:{ ideal:1080 } }, audio:false });
       video.srcObject = stream;
-
       video.onloadedmetadata = () => {
         video.play();
-
-        async function loop() {
-          await hands.send({ image: video });
-          requestAnimationFrame(loop);
-        }
-
+        async function loop() { await hands.send({ image:video }); requestAnimationFrame(loop); }
         loop();
       };
     }
 
-    startCamera().catch(err => {
-      label.innerText = "Camera error: " + err.message;
-    });
+    startCamera().catch(err => toast("Camera error: " + err.message));
   </script>
 </body>
 </html>
