@@ -492,14 +492,10 @@
 
       if (!handsData.length) return grouped;
 
-      const sortedByArea = [...handsData].sort((a, b) => b.box.area - a.box.area);
-      const biggestArea = sortedByArea[0].box.area || 0;
-
       for (const h of handsData) {
-        const lowerFrame = h.box.cy >= 0.56;
-        const closeToCamera = h.box.area >= biggestArea * 0.72 && h.box.cy >= 0.45;
+        const leftSide = h.box.cx < 0.5;
 
-        const role = lowerFrame || closeToCamera ? "self" : "other";
+        const role = leftSide ? "self" : "other";
         grouped[role].push(h.landmarks);
       }
 
