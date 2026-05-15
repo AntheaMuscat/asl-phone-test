@@ -9,9 +9,8 @@
       --self: #62ff9f;
       --other: #5bdcff;
       --pink: #ff8edb;
-      --glass: rgba(0, 0, 0, 0.34);
-      --glass2: rgba(255, 255, 255, 0.12);
-      --text: #ffffff;
+      --glass: rgba(0, 0, 0, 0.28);
+      --line: rgba(255, 255, 255, 0.14);
     }
 
     * {
@@ -26,7 +25,7 @@
       overflow: hidden;
       background: black;
       font-family: Arial, Helvetica, sans-serif;
-      color: var(--text);
+      color: white;
     }
 
     video, canvas {
@@ -48,21 +47,29 @@
       pointer-events: none;
     }
 
-    .topBadge {
+    .lensLine {
       position: absolute;
-      top: max(8px, env(safe-area-inset-top));
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 1px;
+      background: rgba(255,255,255,.16);
+    }
+
+    #connection {
+      position: absolute;
+      top: 8px;
       left: 50%;
       transform: translateX(-50%);
       background: var(--glass);
-      border: 1px solid var(--glass2);
+      border: 1px solid var(--line);
       border-radius: 999px;
       padding: 6px 12px;
       font-size: 11px;
       font-weight: 900;
-      backdrop-filter: blur(8px);
-      box-shadow: 0 8px 22px rgba(0,0,0,.25);
+      backdrop-filter: blur(7px);
       white-space: nowrap;
-      max-width: 72vw;
+      max-width: 70vw;
       overflow: hidden;
       text-overflow: ellipsis;
     }
@@ -75,157 +82,78 @@
       color: #ff6f8c;
     }
 
-    .lensLine {
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: 50%;
-      width: 1px;
-      background: rgba(255,255,255,.14);
-    }
-
     .sideHint {
       position: absolute;
-      top: 36px;
+      top: 38px;
+      background: rgba(0,0,0,.22);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 10px;
       font-size: 10px;
       font-weight: 900;
-      letter-spacing: .08em;
       text-transform: uppercase;
-      opacity: .85;
-      background: rgba(0,0,0,.22);
-      border: 1px solid rgba(255,255,255,.10);
-      border-radius: 999px;
-      padding: 5px 9px;
+      letter-spacing: .08em;
       backdrop-filter: blur(6px);
     }
 
-    #leftHint {
-      left: 12px;
+    #selfHint {
+      left: 8vw;
       color: var(--self);
     }
 
-    #rightHint {
-      right: 12px;
+    #otherHint {
+      right: 8vw;
       color: var(--other);
     }
 
-    .vrCard {
+    .floatingLabel {
       position: absolute;
-      bottom: max(12px, env(safe-area-inset-bottom));
-      width: 38vw;
-      min-height: 62px;
-      max-height: 88px;
+      bottom: 16px;
       background: var(--glass);
-      border: 1px solid var(--glass2);
-      border-radius: 18px;
-      padding: 8px 10px;
-      backdrop-filter: blur(9px);
-      box-shadow: 0 10px 24px rgba(0,0,0,.32);
-      overflow: hidden;
-    }
-
-    #selfCard {
-      left: 5vw;
-      border-color: rgba(98,255,159,.48);
-    }
-
-    #otherCard {
-      right: 5vw;
-      border-color: rgba(91,220,255,.48);
-    }
-
-    .cardTop {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-size: 10px;
+      border: 1px solid var(--line);
+      backdrop-filter: blur(7px);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: clamp(12px, 2vw, 18px);
       font-weight: 900;
-      color: rgba(255,255,255,.74);
-      text-transform: uppercase;
-      letter-spacing: .06em;
-    }
-
-    .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 99px;
-      display: inline-block;
-      margin-right: 5px;
-    }
-
-    #selfCard .dot {
-      background: var(--self);
-      box-shadow: 0 0 12px var(--self);
-    }
-
-    #otherCard .dot {
-      background: var(--other);
-      box-shadow: 0 0 12px var(--other);
-    }
-
-    .word {
-      font-size: clamp(18px, 4vw, 32px);
-      font-weight: 1000;
-      margin-top: 2px;
-      text-transform: capitalize;
-      line-height: 1.05;
-      white-space: nowrap;
+      max-width: 30vw;
       overflow: hidden;
       text-overflow: ellipsis;
+      white-space: nowrap;
+      box-shadow: 0 8px 22px rgba(0,0,0,.28);
     }
 
-    .mini {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      margin-top: 4px;
-      font-size: 10px;
-      color: rgba(255,255,255,.76);
+    #selfFloating {
+      left: 8vw;
+      border-color: rgba(98,255,159,.55);
     }
 
-    .bar {
-      flex: 1;
-      height: 5px;
-      background: rgba(255,255,255,.15);
-      border-radius: 99px;
-      overflow: hidden;
-    }
-
-    .fill {
-      height: 100%;
-      width: 0%;
-      border-radius: 99px;
-      transition: width .2s ease;
-    }
-
-    #selfFill {
-      background: var(--self);
-    }
-
-    #otherFill {
-      background: var(--other);
+    #otherFloating {
+      right: 8vw;
+      border-color: rgba(91,220,255,.55);
     }
 
     .tinyWords {
       position: absolute;
-      top: 10px;
-      width: 38vw;
+      bottom: 55px;
+      width: 30vw;
       display: flex;
       gap: 5px;
       overflow: hidden;
     }
 
     #selfWords {
-      left: 5vw;
+      left: 8vw;
     }
 
     #otherWords {
-      right: 5vw;
+      right: 8vw;
       justify-content: flex-end;
     }
 
     .chip {
-      background: rgba(255,255,255,.14);
+      background: rgba(255,255,255,.13);
       border: 1px solid rgba(255,255,255,.10);
       border-radius: 999px;
       padding: 4px 7px;
@@ -235,29 +163,28 @@
       backdrop-filter: blur(5px);
     }
 
-    .actionBar {
+    .centerActions {
       position: absolute;
       left: 50%;
-      bottom: max(14px, env(safe-area-inset-bottom));
+      bottom: 14px;
       transform: translateX(-50%);
       display: flex;
-      flex-direction: column;
       gap: 6px;
       pointer-events: auto;
     }
 
-    .actionBar button {
-      border: 0;
+    .centerActions button {
+      border: none;
       border-radius: 999px;
       padding: 7px 10px;
-      background: rgba(255,255,255,.84);
-      color: #061014;
       font-size: 10px;
-      font-weight: 1000;
-      box-shadow: 0 6px 16px rgba(0,0,0,.26);
+      font-weight: 900;
+      background: rgba(255,255,255,.82);
+      color: #061014;
+      box-shadow: 0 6px 16px rgba(0,0,0,.24);
     }
 
-    .actionBar .clear {
+    .centerActions .clear {
       background: var(--pink);
       color: white;
     }
@@ -265,10 +192,10 @@
     #toast {
       position: absolute;
       left: 50%;
-      top: 58px;
+      top: 64px;
       transform: translateX(-50%);
-      background: rgba(0,0,0,.62);
-      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.58);
+      border: 1px solid var(--line);
       border-radius: 999px;
       padding: 7px 12px;
       font-size: 11px;
@@ -276,7 +203,7 @@
       opacity: 0;
       transition: opacity .2s ease;
       backdrop-filter: blur(8px);
-      max-width: 80vw;
+      max-width: 76vw;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -284,48 +211,6 @@
 
     #toast.show {
       opacity: 1;
-    }
-
-    @media (orientation: portrait) {
-      .lensLine {
-        display: none;
-      }
-
-      .vrCard {
-        width: 43vw;
-        bottom: 18px;
-      }
-
-      #selfCard {
-        left: 3vw;
-      }
-
-      #otherCard {
-        right: 3vw;
-      }
-
-      .actionBar {
-        top: 58px;
-        bottom: auto;
-        flex-direction: row;
-      }
-
-      .sideHint {
-        top: 94px;
-      }
-
-      .tinyWords {
-        top: auto;
-        bottom: 112px;
-      }
-
-      #selfWords {
-        left: 3vw;
-      }
-
-      #otherWords {
-        right: 3vw;
-      }
     }
   </style>
 </head>
@@ -337,39 +222,18 @@
   <div id="hud">
     <div class="lensLine"></div>
 
-    <div id="connection" class="topBadge disconnected">Backend checking...</div>
+    <div id="connection" class="disconnected">Backend checking...</div>
 
-    <div id="leftHint" class="sideHint">You</div>
-    <div id="rightHint" class="sideHint">Other</div>
+    <div id="selfHint" class="sideHint">Left = You</div>
+    <div id="otherHint" class="sideHint">Right = Other</div>
 
     <div id="selfWords" class="tinyWords"></div>
     <div id="otherWords" class="tinyWords"></div>
 
-    <section id="selfCard" class="vrCard">
-      <div class="cardTop">
-        <span><span class="dot"></span>You</span>
-        <span id="selfState">waiting</span>
-      </div>
-      <div id="selfLive" class="word">—</div>
-      <div class="mini">
-        <span id="selfConf">0%</span>
-        <div class="bar"><div id="selfFill" class="fill"></div></div>
-      </div>
-    </section>
+    <div id="selfFloating" class="floatingLabel">You: — 0%</div>
+    <div id="otherFloating" class="floatingLabel">Other: — 0%</div>
 
-    <section id="otherCard" class="vrCard">
-      <div class="cardTop">
-        <span><span class="dot"></span>Other</span>
-        <span id="otherState">waiting</span>
-      </div>
-      <div id="otherLive" class="word">—</div>
-      <div class="mini">
-        <span id="otherConf">0%</span>
-        <div class="bar"><div id="otherFill" class="fill"></div></div>
-      </div>
-    </section>
-
-    <div class="actionBar">
+    <div class="centerActions">
       <button onclick="finishSentence('self')">Finish You</button>
       <button onclick="finishSentence('other')">Finish Other</button>
       <button class="clear" onclick="clearAll()">Clear</button>
@@ -442,7 +306,7 @@
       const el = document.getElementById("toast");
       el.innerText = msg;
       el.classList.add("show");
-      setTimeout(() => el.classList.remove("show"), 1400);
+      setTimeout(() => el.classList.remove("show"), 1300);
     }
 
     function nice(label) {
@@ -450,7 +314,10 @@
     }
 
     function getBox(landmarks) {
-      let minX = 1, maxX = 0, minY = 1, maxY = 0;
+      let minX = 1;
+      let maxX = 0;
+      let minY = 1;
+      let maxY = 0;
 
       for (const p of landmarks) {
         minX = Math.min(minX, p.x);
@@ -460,7 +327,10 @@
       }
 
       return {
-        minX, maxX, minY, maxY,
+        minX,
+        maxX,
+        minY,
+        maxY,
         cx: (minX + maxX) / 2,
         cy: (minY + maxY) / 2,
         area: (maxX - minX) * (maxY - minY)
@@ -469,32 +339,42 @@
 
     function flatten(landmarks) {
       const arr = [];
+
       for (const p of landmarks) {
         arr.push(p.x, p.y, p.z);
       }
+
       return arr;
     }
 
     function makeTwoHandFrame(hands) {
       let frame = [];
+
       hands.sort((a, b) => getBox(a).cx - getBox(b).cx);
 
       for (let i = 0; i < 2; i++) {
-        if (hands[i]) frame = frame.concat(flatten(hands[i]));
-        else frame = frame.concat(new Array(63).fill(0));
+        if (hands[i]) {
+          frame = frame.concat(flatten(hands[i]));
+        } else {
+          frame = frame.concat(new Array(63).fill(0));
+        }
       }
 
       return frame;
     }
 
     function assignRoles(handsData) {
-      const grouped = { self: [], other: [] };
+      const grouped = {
+        self: [],
+        other: []
+      };
 
-      if (!handsData.length) return grouped;
+      if (!handsData.length) {
+        return grouped;
+      }
 
       for (const h of handsData) {
         const leftSide = h.box.cx < 0.5;
-
         const role = leftSide ? "self" : "other";
         grouped[role].push(h.landmarks);
       }
@@ -513,10 +393,10 @@
         const data = await res.json();
 
         el.innerText = `Connected · ${data.labels.length} words`;
-        el.className = "topBadge connected";
+        el.className = "connected";
       } catch {
         el.innerText = "Backend disconnected";
-        el.className = "topBadge disconnected";
+        el.className = "disconnected";
       }
     }
 
@@ -539,7 +419,9 @@
       try {
         const res = await fetch(SAVE_URL, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json"
+          },
           body: JSON.stringify({
             label: selectedLabel,
             role: selectedRole,
@@ -549,8 +431,11 @@
 
         const data = await res.json();
 
-        if (data.error) toast("Save error");
-        else toast(`Saved ${nice(selectedLabel)}`);
+        if (data.error) {
+          toast("Save error");
+        } else {
+          toast(`Saved ${nice(selectedLabel)}`);
+        }
       } catch {
         toast("Backend save failed");
       }
@@ -561,10 +446,15 @@
     async function sendPrediction(roleName) {
       const state = roles[roleName];
 
-      if (state.predicting || state.sequence.length < SEQ_LENGTH) return;
+      if (state.predicting || state.sequence.length < SEQ_LENGTH) {
+        return;
+      }
 
       const now = performance.now();
-      if (now - state.lastPredictAt < PREDICT_EVERY_MS) return;
+
+      if (now - state.lastPredictAt < PREDICT_EVERY_MS) {
+        return;
+      }
 
       state.predicting = true;
       state.lastPredictAt = now;
@@ -572,8 +462,12 @@
       try {
         const res = await fetch(PREDICT_URL, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sequence: [...state.sequence] })
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            sequence: [...state.sequence]
+          })
         });
 
         const data = await res.json();
@@ -583,7 +477,7 @@
         }
       } catch {
         document.getElementById("connection").innerText = "Backend disconnected";
-        document.getElementById("connection").className = "topBadge disconnected";
+        document.getElementById("connection").className = "disconnected";
       } finally {
         state.predicting = false;
       }
@@ -609,6 +503,7 @@
         !isNeutral;
 
       const cooldownPassed = now - state.lastConfirmedAt > WORD_COOLDOWN_MS;
+
       const notSameTooSoon =
         label !== state.lastWord ||
         now - state.lastConfirmedAt > WORD_COOLDOWN_MS * 2;
@@ -628,20 +523,27 @@
     }
 
     function sentenceFromWords(words) {
-      if (!words.length) return "";
+      if (!words.length) {
+        return "";
+      }
 
       let text = words.map(nice).join(" ");
       text = text.replace(/\bi\b/g, "I");
       text = text.charAt(0).toUpperCase() + text.slice(1);
 
-      if (!/[.!?]$/.test(text)) text += ".";
+      if (!/[.!?]$/.test(text)) {
+        text += ".";
+      }
 
       return text;
     }
 
     function finishSentence(roleName, showToast = true) {
       const state = roles[roleName];
-      if (!state.words.length) return;
+
+      if (!state.words.length) {
+        return;
+      }
 
       state.finalSentence = sentenceFromWords(state.words);
       state.words = [];
@@ -668,13 +570,14 @@
 
     function updateUI(roleName) {
       const s = roles[roleName];
-      const active = performance.now() - s.lastSeenHandsAt < 900;
       const pct = Math.round((s.confidence || 0) * 100);
 
-      document.getElementById(roleName + "Live").innerText = s.liveLabel || "—";
-      document.getElementById(roleName + "Conf").innerText = pct + "%";
-      document.getElementById(roleName + "Fill").style.width = pct + "%";
-      document.getElementById(roleName + "State").innerText = active ? "tracking" : "waiting";
+      const label =
+        `${roleName === "self" ? "You" : "Other"}: ${s.liveLabel || "—"} ${pct}%`;
+
+      document.getElementById(
+        roleName === "self" ? "selfFloating" : "otherFloating"
+      ).innerText = label;
 
       const chips = s.words.slice(-3)
         .map(w => `<span class="chip">${nice(w)}</span>`)
@@ -771,10 +674,18 @@
     async function startCamera() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          aspectRatio: { ideal: 16 / 9 }
+          facingMode: {
+            ideal: "environment"
+          },
+          width: {
+            ideal: 1920
+          },
+          height: {
+            ideal: 1080
+          },
+          aspectRatio: {
+            ideal: 16 / 9
+          }
         },
         audio: false
       });
@@ -785,7 +696,10 @@
         video.play();
 
         async function loop() {
-          await hands.send({ image: video });
+          await hands.send({
+            image: video
+          });
+
           requestAnimationFrame(loop);
         }
 
