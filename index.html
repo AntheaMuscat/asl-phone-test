@@ -105,7 +105,7 @@
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
 
-    const API_URL = location.hostname ? `http://${location.hostname}:5000` : "http://127.0.0.1:5000";
+    const API_URL = "http://192.168.0.78:5000";
     const COMMAND_URL = API_URL + "/get_command";
     const SAVE_URL = API_URL + "/save_sequence";
     const PREDICT_URL = API_URL + "/predict";
