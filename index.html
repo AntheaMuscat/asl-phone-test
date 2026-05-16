@@ -9,10 +9,10 @@
       --self: #62ff9f;
       --other: #5bdcff;
       --pink: #ff8edb;
-      --glass: rgba(0, 0, 0, 0.22);
-      --glass-strong: rgba(0, 0, 0, 0.42);
+      --warn: #ffcf5a;
+      --glass: rgba(0, 0, 0, 0.24);
+      --glass-strong: rgba(0, 0, 0, 0.46);
       --line: rgba(255, 255, 255, 0.14);
-      --text: #ffffff;
     }
 
     * {
@@ -25,9 +25,9 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: #000;
+      background: black;
       font-family: Arial, Helvetica, sans-serif;
-      color: var(--text);
+      color: white;
       overscroll-behavior: none;
     }
 
@@ -104,12 +104,12 @@
     }
 
     #selfHint {
-      left: 7vw;
+      left: 6vw;
       color: var(--self);
     }
 
     #otherHint {
-      right: 7vw;
+      right: 6vw;
       color: var(--other);
     }
 
@@ -132,12 +132,12 @@
     }
 
     #selfFloating {
-      left: 7vw;
+      left: 6vw;
       border-color: rgba(98,255,159,.55);
     }
 
     #otherFloating {
-      right: 7vw;
+      right: 6vw;
       border-color: rgba(91,220,255,.55);
     }
 
@@ -155,12 +155,12 @@
     }
 
     #selfWords {
-      left: 7vw;
+      left: 6vw;
       justify-content: flex-start;
     }
 
     #otherWords {
-      right: 7vw;
+      right: 6vw;
       justify-content: flex-end;
     }
 
@@ -168,7 +168,7 @@
       flex: 0 0 auto;
       display: inline-flex;
       align-items: center;
-      max-width: 80px;
+      max-width: 82px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -190,7 +190,7 @@
       flex-direction: row;
       gap: 5px;
       pointer-events: auto;
-      opacity: .72;
+      opacity: .70;
     }
 
     .centerActions button {
@@ -230,6 +230,27 @@
     }
 
     #toast.show {
+      opacity: 1;
+    }
+
+    .modeBadge {
+      position: absolute;
+      left: 50%;
+      bottom: 48px;
+      transform: translateX(-50%);
+      background: rgba(255, 207, 90, 0.20);
+      color: var(--warn);
+      border: 1px solid rgba(255, 207, 90, 0.42);
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 9px;
+      font-weight: 900;
+      opacity: 0;
+      transition: opacity .18s ease;
+      backdrop-filter: blur(8px);
+    }
+
+    .modeBadge.show {
       opacity: 1;
     }
 
@@ -294,14 +315,16 @@
       <div id="fpsBadge" class="pill">FPS —</div>
     </div>
 
-    <div id="selfHint" class="zoneHint">Left = You</div>
-    <div id="otherHint" class="zoneHint">Right = Other</div>
+    <div id="selfHint" class="zoneHint">Close / Lower = You</div>
+    <div id="otherHint" class="zoneHint">Far / Upper = Other</div>
 
     <div id="selfWords" class="wordRow"></div>
     <div id="otherWords" class="wordRow"></div>
 
     <div id="selfFloating" class="floatingLabel">You: — 0%</div>
     <div id="otherFloating" class="floatingLabel">Other: — 0%</div>
+
+    <div id="modeBadge" class="modeBadge">SELF CLOSE MODE</div>
 
     <div class="centerActions">
       <button onclick="finishSentence('self')">Finish You</button>
@@ -333,11 +356,19 @@
 
     const SEQ_LENGTH = 30;
     const PREDICT_EVERY_MS = 240;
-    const CONFIRM_THRESHOLD = 0.72;
+
+    const CONFIRM_THRESHOLD = 0.74;
+    const SELF_CLOSE_CONFIRM_THRESHOLD = 0.68;
+
     const MIN_STABLE_FRAMES = 3;
     const WORD_COOLDOWN_MS = 1300;
     const PAUSE_TO_FINISH_MS = 2300;
     const NO_HAND_RESET_MS = 900;
+
+    const CLOSE_AREA_THRESHOLD = 0.055;
+    const VERY_CLOSE_AREA_THRESHOLD = 0.085;
+    const SELF_LOWER_Y = 0.52;
+    const OTHER_UPPER_Y = 0.48;
 
     const NEUTRAL_LABELS = new Set(["neutral", "none", "unknown", "idle", "no_hands"]);
 
@@ -348,6 +379,7 @@
 
     let lastFrameTime = performance.now();
     let fps = 0;
+    let selfCloseMode = false;
 
     let roles = {
       self: makeRole("self"),
@@ -368,7 +400,8 @@
         lastConfirmedAt: 0,
         lastWord: null,
         lastSeenHandsAt: 0,
-        finalSentence: ""
+        finalSentence: "",
+        closeMode: false
       };
     }
 
@@ -405,16 +438,23 @@
       }
 
       return {
-        minX, maxX, minY, maxY,
+        minX,
+        maxX,
+        minY,
+        maxY,
         cx: (minX + maxX) / 2,
         cy: (minY + maxY) / 2,
+        width: maxX - minX,
+        height: maxY - minY,
         area: (maxX - minX) * (maxY - minY)
       };
     }
 
     function flatten(landmarks) {
       const arr = [];
-      for (const p of landmarks) arr.push(p.x, p.y, p.z);
+      for (const p of landmarks) {
+        arr.push(p.x, p.y, p.z);
+      }
       return arr;
     }
 
@@ -424,23 +464,62 @@
       hands.sort((a, b) => getBox(a).cx - getBox(b).cx);
 
       for (let i = 0; i < 2; i++) {
-        if (hands[i]) frame = frame.concat(flatten(hands[i]));
-        else frame = frame.concat(new Array(63).fill(0));
+        if (hands[i]) {
+          frame = frame.concat(flatten(hands[i]));
+        } else {
+          frame = frame.concat(new Array(63).fill(0));
+        }
       }
 
       return frame;
     }
 
     function assignRoles(handsData) {
-      const grouped = { self: [], other: [] };
+      const grouped = {
+        self: [],
+        other: []
+      };
+
+      selfCloseMode = false;
+
+      if (!handsData.length) {
+        document.getElementById("modeBadge").classList.remove("show");
+        return grouped;
+      }
+
+      const sortedByArea = [...handsData].sort((a, b) => b.box.area - a.box.area);
+      const biggestArea = sortedByArea[0].box.area || 0;
 
       for (const h of handsData) {
-        const role = h.box.cx < 0.5 ? "self" : "other";
+        const closeToCamera = h.box.area >= CLOSE_AREA_THRESHOLD;
+        const veryClose = h.box.area >= VERY_CLOSE_AREA_THRESHOLD;
+        const lowerSelfZone = h.box.cy >= SELF_LOWER_Y;
+        const largeRelativeHand = h.box.area >= biggestArea * 0.75 && h.box.cy >= 0.44;
+
+        let role;
+
+        if (veryClose || closeToCamera || lowerSelfZone || largeRelativeHand) {
+          role = "self";
+          selfCloseMode = selfCloseMode || closeToCamera || veryClose;
+        } else {
+          const upperOtherZone = h.box.cy <= OTHER_UPPER_Y;
+          const rightSide = h.box.cx >= 0.5;
+
+          role = upperOtherZone || rightSide ? "other" : "self";
+        }
+
         grouped[role].push(h.landmarks);
       }
 
+      grouped.self.sort((a, b) => getBox(b).area - getBox(a).area);
+      grouped.other.sort((a, b) => getBox(b).area - getBox(a).area);
+
       grouped.self = grouped.self.slice(0, 2);
       grouped.other = grouped.other.slice(0, 2);
+
+      document.getElementById("modeBadge").classList.toggle("show", selfCloseMode);
+
+      roles.self.closeMode = selfCloseMode;
 
       return grouped;
     }
@@ -544,8 +623,13 @@
       const now = performance.now();
       const isNeutral = NEUTRAL_LABELS.has(label);
 
+      const threshold =
+        state.role === "self" && state.closeMode
+          ? SELF_CLOSE_CONFIRM_THRESHOLD
+          : CONFIRM_THRESHOLD;
+
       const canConfirm =
-        confidence >= CONFIRM_THRESHOLD &&
+        confidence >= threshold &&
         state.stableCount >= MIN_STABLE_FRAMES &&
         !isNeutral;
 
@@ -615,8 +699,10 @@
       const displayLabel = active ? s.liveLabel : "—";
       const displayPct = active ? pct : 0;
 
+      const modeText = roleName === "self" && s.closeMode ? " close" : "";
+
       const label =
-        `${roleName === "self" ? "You" : "Other"}: ${displayLabel} ${displayPct}%`;
+        `${roleName === "self" ? "You" : "Other"}: ${displayLabel} ${displayPct}%${modeText}`;
 
       document.getElementById(
         roleName === "self" ? "selfFloating" : "otherFloating"
@@ -645,8 +731,8 @@
     hands.setOptions({
       maxNumHands: 4,
       modelComplexity: 1,
-      minDetectionConfidence: 0.48,
-      minTrackingConfidence: 0.48
+      minDetectionConfidence: 0.45,
+      minTrackingConfidence: 0.45
     });
 
     hands.onResults(results => {
@@ -676,6 +762,7 @@
 
           if (recording && selectedRole === roleName) {
             recordSequence.push(frame);
+
             document.getElementById("recordFill").style.width =
               `${Math.min(100, (recordSequence.length / SEQ_LENGTH) * 100)}%`;
 
@@ -687,7 +774,11 @@
 
           if (!recording) {
             state.sequence.push(frame);
-            if (state.sequence.length > SEQ_LENGTH) state.sequence.shift();
+
+            if (state.sequence.length > SEQ_LENGTH) {
+              state.sequence.shift();
+            }
+
             sendPrediction(roleName);
           }
         } else {
@@ -699,15 +790,16 @@
       for (const h of handsData) {
         const isSelf = grouped.self.includes(h.landmarks);
         const color = isSelf ? "#62ff9f" : "#5bdcff";
+        const width = isSelf && selfCloseMode ? 4 : 3;
 
         drawConnectors(ctx, h.landmarks, HAND_CONNECTIONS, {
           color,
-          lineWidth: 3
+          lineWidth: width
         });
 
         drawLandmarks(ctx, h.landmarks, {
           color: "#ffffff",
-          radius: 2
+          radius: isSelf && selfCloseMode ? 3 : 2
         });
       }
     });
@@ -716,8 +808,8 @@
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
           aspectRatio: { ideal: 16 / 9 }
         },
         audio: false
