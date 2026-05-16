@@ -36,6 +36,7 @@
       width: 100vw;
       height: 100vh;
       object-fit: cover;
+      transform: translateZ(0);
     }
 
     video {
@@ -277,15 +278,10 @@
     .recording .recordingBadge {
       display: block;
     }
-
-    video, canvas {
-      transform: translateZ(0);
-    }
   </style>
 </head>
 
 <body>
-
   <video id="video" autoplay playsinline muted></video>
   <canvas id="canvas"></canvas>
 
@@ -355,6 +351,7 @@
     let selfCloseMode = false;
 
     let recording = false;
+    let savingRecording = false;
     let selectedLabel = null;
     let selectedRole = "self";
     let recordSequence = [];
@@ -501,7 +498,6 @@
       grouped.other = grouped.other.slice(0, 2);
 
       document.getElementById("modeBadge").classList.toggle("show", selfCloseMode);
-
       roles.self.closeMode = selfCloseMode;
 
       return grouped;
@@ -527,7 +523,7 @@
         const res = await fetch(COMMAND_URL);
         const data = await res.json();
 
-        if (data.record && data.label && !recording) {
+        if (data.record && data.label && !recording && !savingRecording) {
           selectedLabel = data.label;
           selectedRole = data.role || "self";
           recordSequence = [];
@@ -544,30 +540,46 @@
     }
 
     async function saveSequence() {
+      if (savingRecording) return;
+
+      savingRecording = true;
+      recording = false;
+
+      const labelToSave = selectedLabel;
+      const roleToSave = selectedRole;
+      const sequenceToSave = recordSequence.slice(0, SEQ_LENGTH);
+
+      recordSequence = [];
+      selectedLabel = null;
+
+      document.getElementById("recordFill").style.width = "0%";
+      document.body.classList.remove("recording");
+
       try {
         const res = await fetch(SAVE_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            label: selectedLabel,
-            role: selectedRole,
-            sequence: recordSequence
+            label: labelToSave,
+            role: roleToSave,
+            sequence: sequenceToSave
           })
         });
 
         const data = await res.json();
 
-        toast(data.error ? "Save error" : `Saved ${nice(selectedLabel)}`);
-      } catch {
+        if (res.ok && !data.error) {
+          toast(`Saved ${nice(labelToSave)}`);
+        } else {
+          console.log("Save error:", data);
+          toast("Save error");
+        }
+      } catch (e) {
+        console.log("Backend save failed:", e);
         toast("Backend save failed");
       }
 
-      recordSequence = [];
-      recording = false;
-      selectedLabel = null;
-
-      document.getElementById("recordFill").style.width = "0%";
-      document.body.classList.remove("recording");
+      savingRecording = false;
     }
 
     async function sendPrediction(roleName) {
@@ -684,6 +696,7 @@
       };
 
       recording = false;
+      savingRecording = false;
       selectedLabel = null;
       recordSequence = [];
 
@@ -752,24 +765,17 @@
       document.getElementById("fpsBadge").innerText = `FPS ${fps}`;
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const shouldMirror = currentFacingMode === "user";
+
       ctx.save();
 
-      if (currentFacingMode === "user") {
-
+      if (shouldMirror) {
         ctx.translate(canvas.width, 0);
         ctx.scale(-1, 1);
-
       }
 
-      ctx.drawImage(
-        results.image,
-        0,
-        0,
-        canvas.width,
-        canvas.height
-      );
-
-      ctx.restore();
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
       const handsData = (results.multiHandLandmarks || []).map(l => ({
         landmarks: l,
@@ -793,12 +799,12 @@
             document.getElementById("recordFill").style.width =
               `${Math.min(100, (recordSequence.length / SEQ_LENGTH) * 100)}%`;
 
-            if (recordSequence.length >= SEQ_LENGTH) {
+            if (recordSequence.length >= SEQ_LENGTH && !savingRecording) {
               saveSequence();
             }
           }
 
-          if (!recording) {
+          if (!recording && !savingRecording) {
             state.sequence.push(frame);
 
             if (state.sequence.length > SEQ_LENGTH) {
@@ -830,6 +836,8 @@
           radius: isSelf && selfCloseMode ? 3 : 2
         });
       }
+
+      ctx.restore();
     });
 
     async function startCamera(facingMode = currentFacingMode) {
@@ -891,6 +899,5 @@
 
     startCamera();
   </script>
-
 </body>
 </html>
