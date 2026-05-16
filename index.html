@@ -235,6 +235,48 @@
     .modeBadge.show {
       opacity: 1;
     }
+
+    .recordBar {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      width: 170px;
+      height: 7px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.18);
+      overflow: hidden;
+      display: none;
+      border: 1px solid rgba(255,255,255,.18);
+    }
+
+    .recordFill {
+      height: 100%;
+      width: 0%;
+      background: var(--pink);
+    }
+
+    .recording .recordBar {
+      display: block;
+    }
+
+    .recordingBadge {
+      position: absolute;
+      top: 18px;
+      left: 8px;
+      background: rgba(255,142,219,.22);
+      color: white;
+      border: 1px solid rgba(255,142,219,.5);
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 10px;
+      font-weight: 900;
+      display: none;
+      backdrop-filter: blur(8px);
+    }
+
+    .recording .recordingBadge {
+      display: block;
+    }
   </style>
 </head>
 
@@ -244,7 +286,6 @@
   <canvas id="canvas"></canvas>
 
   <div id="hud">
-
     <div class="lensLine"></div>
 
     <div class="topStatus">
@@ -270,15 +311,19 @@
       <button class="clear" onclick="clearAll()">Clear</button>
     </div>
 
-    <div id="toast"></div>
+    <div class="recordBar">
+      <div id="recordFill" class="recordFill"></div>
+    </div>
 
+    <div id="recordingBadge" class="recordingBadge">Recording...</div>
+
+    <div id="toast"></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
   <script>
-
     const video = document.getElementById("video");
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
@@ -290,22 +335,61 @@
 
     const HEALTH_URL = API_URL + "/health";
     const PREDICT_URL = API_URL + "/predict";
+    const COMMAND_URL = API_URL + "/get_command";
+    const SAVE_URL = API_URL + "/save_sequence";
 
     const SEQ_LENGTH = 30;
     const PREDICT_EVERY_MS = 240;
-
     const CONFIRM_THRESHOLD = 0.74;
+    const SELF_CLOSE_CONFIRM_THRESHOLD = 0.68;
+    const MIN_STABLE_FRAMES = 3;
+    const WORD_COOLDOWN_MS = 1300;
+    const PAUSE_TO_FINISH_MS = 2300;
+    const NO_HAND_RESET_MS = 900;
 
     let lastFrameTime = performance.now();
     let selfCloseMode = false;
 
+    let recording = false;
+    let selectedLabel = null;
+    let selectedRole = "self";
+    let recordSequence = [];
+
+    const NEUTRAL_LABELS = new Set(["neutral", "none", "unknown", "idle", "no_hands"]);
+
+    let roles = {
+      self: makeRole("self"),
+      other: makeRole("other")
+    };
+
+    function makeRole(role) {
+      return {
+        role,
+        sequence: [],
+        predicting: false,
+        lastPredictAt: 0,
+        liveLabel: "—",
+        confidence: 0,
+        stableLabel: null,
+        stableCount: 0,
+        words: [],
+        lastConfirmedAt: 0,
+        lastWord: null,
+        lastSeenHandsAt: 0,
+        closeMode: false
+      };
+    }
+
     function resizeCanvas() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
+      canvas.style.width = "100vw";
+      canvas.style.height = "100vh";
     }
 
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("orientationchange", () => setTimeout(resizeCanvas, 300));
 
     function toast(msg) {
       const el = document.getElementById("toast");
@@ -315,6 +399,10 @@
       setTimeout(() => {
         el.classList.remove("show");
       }, 1400);
+    }
+
+    function nice(label) {
+      return (label || "—").replaceAll("_", " ");
     }
 
     function getBox(landmarks) {
@@ -368,7 +456,6 @@
     }
 
     function assignRoles(handsData) {
-
       const grouped = {
         self: [],
         other: []
@@ -376,16 +463,26 @@
 
       selfCloseMode = false;
 
-      for (const h of handsData) {
+      if (!handsData.length) {
+        document.getElementById("modeBadge").classList.remove("show");
+        roles.self.closeMode = false;
+        return grouped;
+      }
 
+      const sortedByArea = [...handsData].sort((a, b) => b.box.area - a.box.area);
+      const biggestArea = sortedByArea[0].box.area || 0;
+
+      for (const h of handsData) {
         const closeToCamera = h.box.area > 0.055;
+        const veryClose = h.box.area > 0.085;
         const lowerSelfZone = h.box.cy > 0.52;
+        const largeRelativeHand = h.box.area >= biggestArea * 0.75 && h.box.cy >= 0.44;
 
         let role;
 
-        if (closeToCamera || lowerSelfZone) {
+        if (veryClose || closeToCamera || lowerSelfZone || largeRelativeHand) {
           role = "self";
-          selfCloseMode = true;
+          selfCloseMode = selfCloseMode || closeToCamera || veryClose;
         } else {
           role = "other";
         }
@@ -393,36 +490,238 @@
         grouped[role].push(h.landmarks);
       }
 
+      grouped.self.sort((a, b) => getBox(b).area - getBox(a).area);
+      grouped.other.sort((a, b) => getBox(b).area - getBox(a).area);
+
       grouped.self = grouped.self.slice(0, 2);
       grouped.other = grouped.other.slice(0, 2);
 
-      document
-        .getElementById("modeBadge")
-        .classList.toggle("show", selfCloseMode);
+      document.getElementById("modeBadge").classList.toggle("show", selfCloseMode);
+
+      roles.self.closeMode = selfCloseMode;
 
       return grouped;
     }
 
     async function checkBackend() {
-
       const el = document.getElementById("connection");
 
       try {
-
         const res = await fetch(HEALTH_URL);
         const data = await res.json();
 
         el.innerText = `Connected · ${data.labels.length} words`;
         el.className = "pill connected";
-
       } catch {
-
         el.innerText = "Backend offline";
         el.className = "pill disconnected";
       }
     }
 
+    async function checkCommand() {
+      try {
+        const res = await fetch(COMMAND_URL);
+        const data = await res.json();
+
+        if (data.record && data.label && !recording) {
+          selectedLabel = data.label;
+          selectedRole = data.role || "self";
+          recordSequence = [];
+          recording = true;
+
+          document.body.classList.add("recording");
+          document.getElementById("recordFill").style.width = "0%";
+          document.getElementById("recordingBadge").innerText =
+            `Recording ${nice(selectedLabel)} · ${selectedRole}`;
+
+          toast(`Recording ${nice(selectedLabel)} · ${selectedRole}`);
+        }
+      } catch {}
+    }
+
+    async function saveSequence() {
+      try {
+        const res = await fetch(SAVE_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            label: selectedLabel,
+            role: selectedRole,
+            sequence: recordSequence
+          })
+        });
+
+        const data = await res.json();
+
+        toast(data.error ? "Save error" : `Saved ${nice(selectedLabel)}`);
+      } catch {
+        toast("Backend save failed");
+      }
+
+      recordSequence = [];
+      recording = false;
+      selectedLabel = null;
+
+      document.getElementById("recordFill").style.width = "0%";
+      document.body.classList.remove("recording");
+    }
+
+    async function sendPrediction(roleName) {
+      const state = roles[roleName];
+
+      if (state.predicting || state.sequence.length < SEQ_LENGTH) return;
+
+      const now = performance.now();
+
+      if (now - state.lastPredictAt < PREDICT_EVERY_MS) return;
+
+      state.predicting = true;
+      state.lastPredictAt = now;
+
+      try {
+        const res = await fetch(PREDICT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sequence: [...state.sequence] })
+        });
+
+        const data = await res.json();
+
+        if (!data.error) {
+          handlePrediction(state, data.label, data.confidence);
+        }
+      } catch {
+        document.getElementById("connection").innerText = "Backend offline";
+        document.getElementById("connection").className = "pill disconnected";
+      } finally {
+        state.predicting = false;
+      }
+    }
+
+    function handlePrediction(state, label, confidence) {
+      state.liveLabel = nice(label);
+      state.confidence = confidence || 0;
+
+      if (label === state.stableLabel) {
+        state.stableCount++;
+      } else {
+        state.stableLabel = label;
+        state.stableCount = 1;
+      }
+
+      const now = performance.now();
+      const isNeutral = NEUTRAL_LABELS.has(label);
+
+      const threshold =
+        state.role === "self" && state.closeMode
+          ? SELF_CLOSE_CONFIRM_THRESHOLD
+          : CONFIRM_THRESHOLD;
+
+      const canConfirm =
+        confidence >= threshold &&
+        state.stableCount >= MIN_STABLE_FRAMES &&
+        !isNeutral;
+
+      const cooldownPassed = now - state.lastConfirmedAt > WORD_COOLDOWN_MS;
+
+      const notSameTooSoon =
+        label !== state.lastWord ||
+        now - state.lastConfirmedAt > WORD_COOLDOWN_MS * 2.2;
+
+      if (canConfirm && cooldownPassed && notSameTooSoon) {
+        state.words.push(label);
+        state.lastWord = label;
+        state.lastConfirmedAt = now;
+
+        toast(`${state.role === "self" ? "You" : "Other"}: ${nice(label)}`);
+      }
+
+      if (state.words.length > 0 && now - state.lastConfirmedAt > PAUSE_TO_FINISH_MS) {
+        finishSentence(state.role, false);
+      }
+
+      updateUI(state.role);
+    }
+
+    function sentenceFromWords(words) {
+      if (!words.length) return "";
+
+      let text = words.map(nice).join(" ");
+      text = text.replace(/\bi\b/g, "I");
+      text = text.charAt(0).toUpperCase() + text.slice(1);
+
+      if (!/[.!?]$/.test(text)) text += ".";
+
+      return text;
+    }
+
+    function finishSentence(roleName, showToast = true) {
+      const state = roles[roleName];
+
+      if (!state.words.length) return;
+
+      const sentence = sentenceFromWords(state.words);
+
+      state.words = [];
+      state.lastWord = null;
+      state.lastConfirmedAt = 0;
+
+      if (showToast) {
+        toast(`${roleName === "self" ? "You" : "Other"}: ${sentence}`);
+      }
+
+      updateUI(roleName);
+    }
+
+    function clearAll() {
+      roles = {
+        self: makeRole("self"),
+        other: makeRole("other")
+      };
+
+      recording = false;
+      selectedLabel = null;
+      recordSequence = [];
+
+      document.getElementById("recordFill").style.width = "0%";
+      document.body.classList.remove("recording");
+
+      updateUI("self");
+      updateUI("other");
+
+      toast("Cleared");
+    }
+
+    function updateUI(roleName) {
+      const s = roles[roleName];
+      const pct = Math.round((s.confidence || 0) * 100);
+      const active = performance.now() - s.lastSeenHandsAt < NO_HAND_RESET_MS;
+
+      const displayLabel = active ? s.liveLabel : "—";
+      const displayPct = active ? pct : 0;
+      const modeText = roleName === "self" && s.closeMode ? " close" : "";
+
+      const label =
+        `${roleName === "self" ? "You" : "Other"}: ${displayLabel} ${displayPct}%${modeText}`;
+
+      document.getElementById(
+        roleName === "self" ? "selfFloating" : "otherFloating"
+      ).innerText = label;
+
+      const chips = s.words.slice(-2)
+        .map(w => `<span class="chip">${nice(w)}</span>`)
+        .join("");
+
+      document.getElementById(roleName + "Words").innerHTML = chips;
+    }
+
     setInterval(checkBackend, 2500);
+    setInterval(checkCommand, 500);
+    setInterval(() => {
+      updateUI("self");
+      updateUI("other");
+    }, 450);
+
     checkBackend();
 
     const hands = new Hands({
@@ -438,7 +737,6 @@
     });
 
     hands.onResults(results => {
-
       const now = performance.now();
 
       const fps = Math.round(
@@ -450,7 +748,6 @@
       document.getElementById("fpsBadge").innerText = `FPS ${fps}`;
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
       ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
       const handsData = (results.multiHandLandmarks || []).map(l => ({
@@ -460,8 +757,42 @@
 
       const grouped = assignRoles(handsData);
 
-      for (const h of handsData) {
+      for (const roleName of ["self", "other"]) {
+        const handsForRole = grouped[roleName];
 
+        if (handsForRole.length) {
+          const state = roles[roleName];
+          state.lastSeenHandsAt = performance.now();
+
+          const frame = makeTwoHandFrame(handsForRole);
+
+          if (recording && selectedRole === roleName) {
+            recordSequence.push(frame);
+
+            document.getElementById("recordFill").style.width =
+              `${Math.min(100, (recordSequence.length / SEQ_LENGTH) * 100)}%`;
+
+            if (recordSequence.length >= SEQ_LENGTH) {
+              saveSequence();
+            }
+          }
+
+          if (!recording) {
+            state.sequence.push(frame);
+
+            if (state.sequence.length > SEQ_LENGTH) {
+              state.sequence.shift();
+            }
+
+            sendPrediction(roleName);
+          }
+        } else {
+          roles[roleName].sequence = [];
+          roles[roleName].stableCount = 0;
+        }
+      }
+
+      for (const h of handsData) {
         const isSelf = grouped.self.includes(h.landmarks);
 
         const color = isSelf
@@ -481,9 +812,7 @@
     });
 
     async function startCamera(facingMode = currentFacingMode) {
-
       try {
-
         if (currentStream) {
           currentStream
             .getTracks()
@@ -503,15 +832,12 @@
         });
 
         currentStream = stream;
-
         video.srcObject = stream;
 
         video.onloadedmetadata = () => {
-
           video.play();
 
           async function loop() {
-
             if (video.readyState >= 2) {
               await hands.send({ image: video });
             }
@@ -529,13 +855,11 @@
         );
 
       } catch (err) {
-
         toast("Camera error: " + err.message);
       }
     }
 
     async function switchCamera() {
-
       const next =
         currentFacingMode === "environment"
           ? "user"
@@ -544,16 +868,7 @@
       await startCamera(next);
     }
 
-    function finishSentence(role) {
-      toast(`Finished ${role}`);
-    }
-
-    function clearAll() {
-      toast("Cleared");
-    }
-
     startCamera();
-
   </script>
 
 </body>
