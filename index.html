@@ -286,6 +286,10 @@
 
     const SEQ_LENGTH = 30;
 
+    const LONG_RECORD_SECONDS = 15;
+    const TARGET_FPS = 20;
+    const LONG_RECORD_FRAMES = LONG_RECORD_SECONDS * TARGET_FPS;
+
     let recording = false;
     let savingRecording = false;
     let selectedLabel = null;
@@ -604,9 +608,9 @@
             recordSequence.push(frame);
 
             document.getElementById("recordFill").style.width =
-              `${Math.min(100, (recordSequence.length / SEQ_LENGTH) * 100)}%`;
+              `${Math.min(100, (recordSequence.length / LONG_RECORD_FRAMES) * 100)}%`;
 
-            if (recordSequence.length >= SEQ_LENGTH && !savingRecording) {
+            if (recordSequence.length >= LONG_RECORD_FRAMES && !savingRecording) {
               saveSequence();
             }
 
