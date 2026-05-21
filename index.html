@@ -461,7 +461,7 @@
 
       const labelToSave = selectedLabel;
       const roleToSave = selectedRole;
-      const sequenceToSave = recordSequence
+      const sequenceToSave = recordSequence.slice(0, SEQ_LENGTH);
 
       recordSequence = [];
 
